@@ -1,0 +1,46 @@
+{
+ "seed": 7,
+ "date": "2026-09-27",
+ "sizes": {
+  "train": 800,
+  "val": 100,
+  "test": 100
+ },
+ "counts": {
+  "train": 800,
+  "val": 100,
+  "test": 100
+ },
+ "sha256": {
+  "train_shard_00.jsonl": "8cdfb66be2be3e76c6f8b997b88e333e07c3c621671888450cf944fa920868a6",
+  "train_shard_01.jsonl": "a53e4461c00eb9c41695516946255a91d799da007ac2944860ca68e290d9d815",
+  "train_shard_02.jsonl": "98444597d028d0d2f0d99f345ee3c40808b650d63d13341a5b21c8f070566021",
+  "train_shard_03.jsonl": "93313931029ad22760fc978cf9d3f5b99422aeb863f2f57fdbe835a5eecfed36",
+  "train_shard_04.jsonl": "2f1c539cfe91bb713162d5e1ba461a94b1a841a84b83f44b15a8d382d1e773ca",
+  "train_shard_05.jsonl": "214f1d3056c9fad149bfae273a1035eb5a2fd6308680df7c25619fde78600280",
+  "train_shard_06.jsonl": "693f8392573cce84c8a8a24e0b02a924bf52e373c690886b8f5abc3b5f40f809",
+  "train_shard_07.jsonl": "e12c5bbd6bc42c1630388f89b40f4e1274b7c9c4e950a6fe29e0b6a1d3ebca8b",
+  "val.jsonl": "3a61f0632d52eade8db2a177d94c89e219eec9c53809937bd14b382b217e7bdb",
+  "test.jsonl": "c1eda8a12eeaeb730e4da3339de0a291b3407ae886dc95deef04dffa1da4d4c7"
+ },
+ "files": {
+  "train": [
+   "train_shard_00.jsonl",
+   "train_shard_01.jsonl",
+   "train_shard_02.jsonl",
+   "train_shard_03.jsonl",
+   "train_shard_04.jsonl",
+   "train_shard_05.jsonl",
+   "train_shard_06.jsonl",
+   "train_shard_07.jsonl"
+  ],
+  "val": [
+   "val.jsonl"
+  ],
+  "test": [
+   "test.jsonl"
+  ]
+ },
+ "near_dup_threshold": 0.8,
+ "clusters": 1000
+}

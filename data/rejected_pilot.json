@@ -1,0 +1,170 @@
+[
+  {
+    "id": "aaron-he-zhu_seo-geo-claude-skills__rank-tracker",
+    "reason": "no valid frontmatter (stub or missing); not spec-compliant"
+  },
+  {
+    "id": "nexscope-ai_ecommerce-skills__walmart-advertising-strategy",
+    "reason": "no valid frontmatter (stub or missing); not spec-compliant"
+  },
+  {
+    "id": "kostja94_marketing-skills__contest",
+    "reason": "deprecated stub (points to another skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__press-coverage",
+    "reason": "deprecated stub (points to another skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__top-banner",
+    "reason": "deprecated stub (points to another skill)"
+  },
+  {
+    "id": "claude-office-skills_skills__doc-parser",
+    "reason": "description is '>' (1 char); not a usable target"
+  },
+  {
+    "id": "claude-office-skills_skills__office-to-md",
+    "reason": "description is '>' (1 char); not a usable target"
+  },
+  {
+    "id": "wind-alice_alicemarket__backtest-expert",
+    "reason": "no license (repo has no LICENSE; GitHub API: NO LICENSE)"
+  },
+  {
+    "id": "wind-alice_alicemarket__breakout_trade_execution_skill",
+    "reason": "no license (repo has no LICENSE; GitHub API: NO LICENSE)"
+  },
+  {
+    "id": "wind-alice_alicemarket__conference_call_takeaway_skill",
+    "reason": "no license (repo has no LICENSE; GitHub API: NO LICENSE)"
+  },
+  {
+    "id": "binance_binance-skills-hub__binance-onchain-copy-trader",
+    "reason": "no license (repo has no LICENSE; GitHub API: NO LICENSE)"
+  },
+  {
+    "id": "aaron-he-zhu_seo-geo-claude-skills__content-quality-auditor",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__popup",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "aaron-he-zhu_seo-geo-claude-skills__schema-markup-generator",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__hero",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__list",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__template-page",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__careers",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__tools",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__refund",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__docs",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__download",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__customer-stories",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "aaron-he-zhu_seo-geo-claude-skills__content-gap-analysis",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "aaron-he-zhu_seo-geo-claude-skills__domain-authority-auditor",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__trust-badges",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__glossary",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__newsletter-signup",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__contact",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__cookie-policy",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__privacy",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__testimonials",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__cta",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "aaron-he-zhu_seo-geo-claude-skills__meta-tags-optimizer",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__services",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__toc",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__social-share",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__comparison-table",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__migration",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__disclosure",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__api",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  },
+  {
+    "id": "kostja94_marketing-skills__top-banner",
+    "reason": "deprecated signpost stub (moved/redirect, not a real skill)"
+  }
+]{"id": "onewave-ai_claude-skills__cowork-sop-writer", "reason": "invalid YAML frontmatter (unquoted colon in description) \u2014 replaced", "wave": "wave2b"}
