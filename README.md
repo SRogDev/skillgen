@@ -8,7 +8,10 @@ The model never writes to disk directly; it outputs a validated blueprint.
 
 ## Dataset
 
-`data/dataset_skillgen_1000.jsonl` — 1000 examples, each:
+`data/dataset_skillgen_1000_shard_*.jsonl` — 1000 examples in 10 shards of 100
+(sharded because the GitHub API rejects single blobs > ~50 MB; reconstruct with
+`cat data/dataset_skillgen_1000_shard_*.jsonl > data/dataset_skillgen_1000.jsonl`).
+Each example:
 
 - `instruction`: synthetic user request (backtranslation of a real skill)
 - `expected_blueprint`: JSON Skill Blueprint derived from a real skill on

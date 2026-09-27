@@ -1,0 +1,9 @@
+[project]
+name = "skillgen"
+version = "0.1.0"
+description = "SkillGen — dataset pipelines for training a skill-generator model"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = []

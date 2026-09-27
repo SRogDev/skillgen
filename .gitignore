@@ -1,0 +1,10 @@
+# Raw cloned repos: local cache only, regenerable from provenance (owner/repo + SHA).
+# NEVER commit: hundreds of nested git repos, several GB.
+data/raw/
+# Intermediate blueprints: embedded in the final dataset JSONL.
+data/blueprints/
+# Monolithic dataset: local build artifact; the sharded files are canonical.
+data/dataset_skillgen_1000.jsonl
+# Working files
+data/instr_parts/
+__pycache__/
