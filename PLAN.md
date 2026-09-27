@@ -143,9 +143,16 @@ consistency, realism, architectural quality, minimality, executability.
 
 ### 13. Dataset leakage
 **Decisión:** (a) test + expert se generan y **congelan primero**; (b) dedup por firma
-(domain, nombre normalizado, structure); (c) similitud de instrucciones con embeddings, umbral
-coseno 0.85 → mismo split; (d) prohibido reutilizar templates canónicos entre splits (solo variantes
-distintas); (e) una skill de skills.sh aparece en **un solo split** (dedup directo por ID).
+(domain, nombre normalizado, structure); (c) **clustering de near-duplicates por Jaccard de
+tokens > 0.8 sobre la instrucción — cada cluster va a un ÚNICO split** (split por cluster, no por
+fila); instrucciones exactamente duplicadas conservan una sola copia; (d) prohibido reutilizar
+templates canónicos entre splits (solo variantes distintas); (e) una skill de skills.sh aparece en
+**un solo split** (dedup directo por ID).
+**Estado 2026-09-27:** ✅ implementado y ejecutado — `scripts/freeze_splits.py` (seed 7,
+determinista, estratificado por dominio), splits congelados **800/100/100** en
+`data/splits/{train,val,test}.jsonl` + `manifest.json` con sha256 por archivo. 1000 clusters
+(cero near-dups al umbral 0.8 en este dataset), cero overlap de instrucciones entre splits.
+⚠️ El test está CONGELADO: no entrenar con él, no tunear contra él, evaluarlo una sola vez al final.
 
 ### 14. Dataset versioning
 **Decisión:** **Git + sha256** por ejemplo y hash global del dataset en v1 (`data/dataset_v1/`,
@@ -159,6 +166,10 @@ distintas); (e) una skill de skills.sh aparece en **un solo split** (dedup direc
 **Decisión propuesta:** **Qwen2.5-7B-Instruct** — Apache 2.0, 32k de contexto, chat template nativo,
 Unsloth ✓, 4-bit ✓, multilingüe fuerte, excelente en output estructurado. **Instruct sí**: ya obedece
 formato; el SFT lo especializa en skills. Alternativa: Llama-3.1-8B-Instruct.
+**Nota 2026-09-27:** antes de congelar, verificar qué modelos open-weight 2026 existen en la clase
+7–8B (han pasado ~18 meses desde Qwen2.5). Criterios: licencia permisiva, Unsloth 4-bit,
+buen structured output. Si aparece un candidato claramente superior, se evalúa; si no, Qwen2.5-7B.
+**Checkpoint base:** usar el pre-cuantizado `unsloth/<model>-bnb-4bit` con `load_in_4bit=True`.
 
 ### 16. Hardware 🟡
 **Decisión propuesta:** **Kaggle, acelerador T4** (gratis: sesiones ~9–12h, 30h/semana, datasets
@@ -173,36 +184,46 @@ más accumulation. Sin GPU: no se entrena (solo demo de inferencia en CPU).
 Target modules: **todos los lineales** (`q,k,v,o,gate,up,down`). **r=16, alpha=32, dropout=0**
 (0.05 solo si aparece overfitting), bias="none".
 
-### 18. Hiperparámetros (baseline E1)
+### 18. Hiperparámetros (baseline E1) — receta confirmada por investigación 2026-09-27
+Fuente principal: [guía oficial de hiperparámetros LoRA de Unsloth](https://unsloth.ai/docs/get-started/fine-tuning-llms-guide/lora-hyperparameters-guide)
+(verificada en vivo); recetas de practicantes convergen en los mismos valores.
 ```yaml
-model: qwen2.5-7b-instruct (unsloth 4-bit)
-lora: {r: 16, alpha: 32, dropout: 0.0, bias: none}
+model: qwen2.5-7b-instruct (unsloth 4-bit pre-cuantizado, load_in_4bit=True)
+lora: {r: 16, alpha: 32, dropout: 0.0, bias: none}   # alpha=16 (=r) alternativa estable
 quant: {bits: 4, type: nf4, double_quant: true, compute_dtype: fp16}
+target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]  # todos los lineales
 training:
   lr: 2e-4
-  epochs: 3
+  epochs: 2                     # empezar en 2; comparar 1/2/3 (ablación)
   per_device_batch: 2
-  grad_accum: 4            # effective batch = 8
-  warmup_ratio: 0.03
+  grad_accum: 8                 # effective batch = 16
+  warmup_ratio: 0.03            # rango 0.03-0.10
   weight_decay: 0.01
-  optimizer: adamw_8bit    # paged_adamw_8bit si hay OOM
-  scheduler: cosine
-  max_seq_length: 4096    # confirmar con p95 del dataset (notebook 03)
-  gradient_checkpointing: true
+  optimizer: adamw_8bit          # paged_adamw_8bit si hay OOM
+  scheduler: cosine              # linear también válido
+  max_seq_length: 4096          # confirmar con p95 del dataset (notebook 03)
+  gradient_checkpointing: "unsloth"   # ~30% ahorro VRAM
   max_grad_norm: 1.0
   seed: 42
 ```
-~300 steps totales (800 ejemplos / batch 8 × 3 epochs). Suficiente para QLoRA en tarea estructurada.
+~100 steps/epoch (800 / 16), 2 epochs ≈ 200 steps. Evaluar cada ~50–100 steps.
+**Regla de parada:** detener en el checkpoint con **mejor val loss**, no al final de los epochs.
+Loss final sana: 0.5–1.0. Train loss < ~0.2 o val loss subiendo = memorización (ver §36).
 
 ### 19. Experimentos (un cambio por vez)
 | ID | Cambio vs anterior | Hipótesis |
 |----|--------------------|-----------|
-| E0 | Baseline: base + few-shot, sin entrenar | punto de comparación honesto |
-| E1 | QLoRA config inicial (§18) | mejora > baseline |
-| E2 | r=32 | más capacidad → mejor en arquitecturas complejas |
-| E3 | lr=1e-4 | estabilidad vs velocidad |
-| E4 | dataset v2 (más datos o filtrado) | calidad de datos > hiperparámetros |
-Mismo seed, mismo test, mismo juez → causalidad atribuible.
+| E0a | Baseline: base zero-shot, sin entrenar | punto de comparación honesto |
+| E0b | Baseline: base few-shot (2–5 ejemplos) | ¿el fine-tune aporta más allá del formato? |
+| E1 | QLoRA config §18 | mejora > baselines |
+| E2 | masking on/off (assistant-only vs all-tokens) | el masking es el efecto más grande en tareas estructuradas |
+| E3 | epochs 1/2/3 | documentar el acantilado de overfitting |
+| E4 | rank 8/16/32 | rendimientos decrecientes |
+| E5 | attention-only vs all-linear | all-linear ≥ attention-only |
+| E6 | dataset size 250/500/800 | eficiencia de datos |
+| E7 | inferencia: unconstrained vs `outlines` constrained decoding | separar "aprendió el formato" de "necesita guardrail" |
+Mismo seed, mismo test congelado, mismos prompts → causalidad atribuible. Reportar conteos
+pareados arreglado/roto + McNemar + IC 95%. Los hallazgos negativos también se reportan.
 
 ### 20. LoRA educativo
 `notebooks/04_lora_experiment.ipynb`: inspecciona adapters, cuenta parámetros entrenables, forward
@@ -219,6 +240,15 @@ reducido** (~50 líneas: tokenize → forward → loss → backward → step) pa
 Responsabilidades: `src/skillgen/data/` construye el dataset; tokenización con el chat template en
 `prepare_dataset`; collator = `DataCollatorForCompletionOnlyLM`; loss en SFTTrainer; evaluación
 periódica; checkpoints en `experiments/<id>/checkpoints/`.
+**Reglas duras (investigación 2026-09-27):**
+- **Mismo chat template en train e inferencia** — el mismatch es la causa #1 de gibberish
+  post-export. Un loss que baja suavemente NO confirma que el template esté bien.
+- **EOS al final de cada ejemplo** (sin él, el modelo genera sin detenerse).
+- **Verificación del masking antes de entrenar:** decodificar `batch["labels"][0]` donde
+  labels ≠ −100 y confirmar que imprime SOLO el turno del assistant. Un template mal escrito
+  enmascara todo en silencio → `loss = 0.0` y cero aprendizaje.
+- En Unsloth: `train_on_responses_only` con los strings exactos de la familia
+  (Qwen 2.5: `instruction_part="<|im_start|>user\n"`, `response_part="<|im_start|>assistant\n"`).
 
 ### 22. Loss
 Cross-entropy **solo sobre tokens del assistant** (§8). Train loss ↓ = mejor predicción de
@@ -239,12 +269,14 @@ assistant).
 → 1e-4; estancamiento >100 steps → 3e-4 (raro en QLoRA).
 
 ### 26. Epochs
-**Decisión:** 3 inicial; **early stopping** (paciencia = 1 evaluación) sobre val loss, evaluando cada
-1/3 de epoch.
+**Decisión:** **2 inicial**; comparar 1/2/3 (ablación E3). **Early stopping** sobre val loss,
+evaluando cada ~50–100 steps; **detener en el mejor checkpoint de val loss**, no al final de los
+epochs programados.
 
 ### 27. Checkpointing
-**Decisión:** cada 1/3 de epoch, máx 3 checkpoints, best por val loss. Se versionan **adapters**
+**Decisión:** cada ~50–100 steps, máx 3 checkpoints, best por val loss. Se versionan **adapters**
 (`adapter_model.safetensors` + config), no el modelo completo. `resume_from_checkpoint` soportado.
+Guardar el tokenizer junto al adapter; loggear seed + config completa.
 
 ### 28. Experiment Tracking
 **Decisión:** W&B por run: model, dataset_version+hash, git commit, hiperparámetros, GPU/VRAM,
@@ -254,47 +286,67 @@ tokens/s, train/val loss, checkpoint path, eval scores. ID: `skillgen-qlora-v1-e
 
 ## BLOQUE E — Evaluación (29–38)
 
-### 29. Evaluación automática
-**Decisión:** determinista para lo estructural (JSON válido, schema, paths, campos requeridos).
-Heurísticas + juez para calidad/arquitectura (nº archivos vs complejidad pedida, presencia de
-`when_not_to_use`, longitud de SKILL.md, penalización de complejidad innecesaria).
+### 29. Evaluación automática — escalera de 5 capas (investigación 2026-09-27)
+**Decisión:** reportar las 5 capas **por separado** (un solo número esconde dónde falla el modelo),
+de barato a caro. Implementado en `scripts/eval_harness.py` (L1–L3, L5; L4 con `--judge`).
+| Capa | Métrica | Cómo |
+|------|---------|------|
+| **L1 parse** | JSON parse rate | `json.loads` sobre el output crudo (code fences strippeados) |
+| **L2 schema** | schema validity rate | validador propio: campos requeridos, tipos, `name` kebab-case, `files` no vacío con `SKILL.md`, paths seguros |
+| **L3 fields** | field-level accuracy | `name` exact match; file paths F1; description token-F1 vs referencia |
+| **L4 judge** | semantic score | LLM-as-judge, rúbrica 1–5 × 4 criterios (§30) |
+| **L5 e2e** | materialization rate | blueprint → tmpdir → existe SKILL.md con frontmatter `name:`/`description:` válidos |
+Heurísticas extra: nº archivos vs complejidad pedida, presencia de `when_not_to_use`, penalización
+de complejidad innecesaria.
 
 ### 30. LLM-as-Judge
-**Decisión:** Claude como juez, temp 0, rúbrica 1–10 por dimensión con anclas, **blind** (no sabe qué
-modelo generó qué), orden aleatorio. 1 pasada en test (100) + 3 pasadas en expert (promedio).
-Anti-sesgo: el juez nunca evalúa outputs de su propia familia como "mejores por defecto"; la rúbrica
-manda.
+**Decisión:** rúbrica **1–5 con anclas** (1 = totalmente mal/ausente, 3 = aceptable con huecos,
+5 = excelente) en 4 dimensiones: *format* (sigue el schema), *faithfulness* (capta la intención,
+sin archivos alucinados), *completeness* (cubre todos los elementos del pedido), *consistency*
+(name/description/files concuerdan). **Temperature 0**. **Juez de otra familia** que el modelo
+evaluado (mitiga self-preference). **Blind** (no sabe qué modelo generó qué), orden aleatorio.
+**Guardar el prompt y la respuesta del juez** con cada evaluación. Para comparaciones pairwise:
+correr ambos órdenes y reportar agreement. 1 pasada en test (100) + 3 pasadas en expert (promedio).
+Sesgos conocidos a mitigar: position, verbosity (decirle que ignore longitud), self-preference,
+format/authority. Requiere `OPENROUTER_API_KEY`; sin ella el harness reporta L4 como *skipped*.
 
 ### 31. Evaluación experta
 **Decisión:** `expert_test_set` = **20 casos difíciles curados por Roger** (skills de skills.sh
-especialmente complejas y/o instrucciones trampa redactadas por él), rúbrica manual 0–100. Es
-el conjunto con más peso cualitativo.
+especialmente complejas y/o instrucciones trampa redactadas por él), rúbrica manual 0–100.
+Vive dentro del conjunto reservado (no del train). Es el conjunto con más peso cualitativo.
 
 ### 32. Evaluación End-to-End
 **Decisión:** la más importante. Blueprint → harness → filesystem en tmpdir → `ast.parse` de scripts
 + validación de SKILL.md → **tasa de skills válidas/ejecutables**. Responde "¿la skill generada
 realmente funciona?". Incluye validación contra el spec oficial; opcionalmente se corre
 `npx skills-ref validate` sobre la skill materializada (compliance real contra el estándar).
+Verificar además que la skill materializada **no escapa del sandbox** (paths contenidos en tmpdir).
 
 ### 33. SkillGen Score (métrica global)
+Las 5 capas se reportan por separado **y** se combinan:
 ```
-SkillGen Score = 0.25·estructural + 0.25·correctitud + 0.20·arquitectura
-               + 0.15·completitud + 0.15·ejecución
+SkillGen Score = 0.25·L1 + 0.25·L2 + 0.20·L3 + 0.15·L4 + 0.15·L5
 ```
-**Justificación de pesos:** sin JSON válido nada sirve (estructural+correctitud = 50%); arquitectura
-es la tesis del proyecto (¿elige bien la complejidad?); ejecución cierra el loop.
+**Justificación de pesos:** sin JSON válido nada sirve (L1+L2 = 50%); L3 mide fidelidad al
+contenido pedido; L4/L5 cierran el loop semántico y de ejecución.
 
 ### 34. Baseline
-**Decisión:** modelo base **sin fine-tuning**, mismo system prompt + 2–3 few-shot, mismo test, mismo
-juez. Comparación honesta Base vs QLoRA.
+**Decisión:** tres corredores sobre el **mismo test congelado, mismos prompts**:
+(a) base **zero-shot**, (b) base **few-shot** (2–5 ejemplos), (c) modelo QLoRA.
+La ganancia del fine-tune se **demuestra, no se asume**. Reporte: conteos pareados
+arreglado/roto por muestra, McNemar en outcomes binarios, IC 95% en métricas.
 
 ### 35. Ablation studies
-**Decisión:** una variable por vez: dataset size (200/400/800), LoRA rank (8/16/32), LR (1e-4/2e-4),
-epochs (1/2/3), formato de output (con/sin file contents).
+Ver tabla de experimentos E0–E7 en §19. Mínimo obligatorio: **masking on/off** y **epochs 1/2/3**
+sobre el validation set congelado.
 
 ### 36. Overfitting
-**Decisión:** señal = val↑ + train↓ con brecha >20%, o n-gram overlap train→test en outputs.
-Respuesta en orden: early stopping → dropout 0.05 → menos epochs → más datos.
+**Señales** (orden de sospecha): train loss < ~0.2 (territorio memorización; SFT sano: 0.5–1.0);
+val loss subiendo mientras train baja; outputs verbatim del train; frases iniciales idénticas
+entre inputs distintos (mode collapse); loops de repetición sin terminar (EOS no aprendido);
+distribución de longitudes muy distinta del modelo base.
+**Respuesta en orden:** más datos diversos → menos epochs → menor LR → weight_decay 0.01–0.1 →
+dropout 0.1 → lora_alpha × 0.5.
 
 ### 37. Catastrophic forgetting
 **Decisión:** 50 preguntas generales (subset de ARC-Challenge) antes/después. Caída >5% se documenta
@@ -318,8 +370,10 @@ benchmark completo.
 
 ### 41. Inferencia
 **Decisión:** temp=0.3, top_p=0.9, max_new_tokens=4096, repetition_penalty=1.1, stop al cerrar el
-JSON. Sin constrained decoding en v1; validación post-hoc + hasta 2 reintentos con el error como
-feedback (§42).
+JSON. **El chat template de inferencia debe ser EXACTAMENTE el de entrenamiento** (pitfall #1
+post-export). Sin constrained decoding en v1; validación post-hoc + hasta 2 reintentos con el
+error como feedback (§42). Experimento E7: comparar contra `outlines` JSON-schema constrained
+decoding como guardrail de inferencia.
 
 ### 42. Validación post-inferencia
 `JSON parse → schema → validación de skill (paths, seguridad) → accept / repair / reject`.
@@ -329,10 +383,15 @@ Repair = reintento con el error como feedback (máx 2). Reject = error tipado al
 `POST /generate-skill` `{input}` → `{blueprint, validation_report}`. v1 local: sin auth, timeout
 120s, input máx 8k tokens, concurrencia 1 (cola simple), errores tipados.
 
-### 44. Hugging Face deployment 🟡
-**Decisión:** subir **adapters** al Hub (visibilidad la decide Roger en §0.1/pregunta 5). Inferencia:
-base 4-bit + adapters en T4 (Kaggle/Colab) o CPU para demo lenta. Cold start = descarga de adapters
-(~100–200MB) + carga del base.
+### 44. Hugging Face deployment
+**Decisión (investigación 2026-09-27):** pipeline estándar —
+**guardar adapter → merge en 16-bit (`merged_16bit`) → cuantizar a GGUF `q4_k_m` → servir con
+Ollama** (local/dev) o **vLLM** (API, OpenAI-compatible). **No hacer merge directo a 4-bit.**
+En Unsloth: `model.save_pretrained_gguf(dir, tokenizer, quantization_method="q4_k_m")`.
+Ollama auto-genera un `Modelfile` con el chat template — **inspeccionarlo antes de
+`ollama create`** (mismo template que en training, §21). Subir al Hub: adapter (~100MB) y/o
+GGUF (visibilidad la decide Roger en §0.1/pregunta 5). Inferencia: base 4-bit + adapters en T4
+(Kaggle/Colab) o CPU para demo lenta. Cold start = descarga de adapters + carga del base.
 
 ### 45. Reproducibilidad
 Por experimento: git commit, versiones python/torch/cuda/unsloth/transformers, dataset hash, model

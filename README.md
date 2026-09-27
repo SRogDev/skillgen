@@ -33,6 +33,16 @@ The split is not frozen yet.
   name normalization)
 - `scripts/build_dataset.py` — assemble the final JSONL (validates names,
   blueprints, instruction coverage, duplicates, near-duplicates)
+- `scripts/freeze_splits.py` — freeze train/val/test splits (800/100/100,
+  seed 7): near-duplicate clustering (token Jaccard > 0.8, one cluster per
+  split), domain stratification, sha256 manifest in `data/splits/`
+- `scripts/eval_harness.py` — 5-layer eval ladder for predictions:
+  L1 JSON parse → L2 schema validity → L3 field accuracy → L4 LLM-as-judge
+  (`--judge`, needs `OPENROUTER_API_KEY`) → L5 blueprint materialization.
+  Usage: `python3 scripts/eval_harness.py --preds preds.jsonl --refs refs.jsonl`
+
+Tests (stdlib only, no pytest needed): `python3 tests/test_freeze_splits.py`
+and `python3 tests/test_eval_harness.py`.
 
 ## Reproducing
 
@@ -47,7 +57,10 @@ regenerate from provenance. Same for `data/blueprints/` intermediates.
 
 ## Status
 
-Dataset v1 (1000) done. Training + eval harness are next — see PLAN.md.
+Dataset v1 (1000) done. Splits frozen (800/100/100, `data/splits/`).
+Eval harness done (`scripts/eval_harness.py`). Next: training script/notebook
+(Unsloth QLoRA) — see PLAN.md. Open items: LICENSE file, per-record provenance
+completion, individual skills.sh verification, official Agent Skills spec check.
 
 ## License
 
