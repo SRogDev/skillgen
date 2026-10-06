@@ -54,6 +54,17 @@ def test_real_splits_load():
     assert len(d.load_split("val")) == 100
 
 
+def test_take_limit():
+    recs = [{"i": i} for i in range(5)]
+    assert d.take_limit(recs, None) == recs
+    assert d.take_limit(recs, 2) == [{"i": 0}, {"i": 1}]
+    try:
+        d.take_limit(recs, 0)
+        raise AssertionError("limit 0 must be rejected")
+    except ValueError:
+        pass
+
+
 if __name__ == "__main__":
     fns = [v for k, v in dict(globals()).items() if k.startswith("test_")]
     for f in fns:

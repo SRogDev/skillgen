@@ -11,6 +11,7 @@
 
 - 2026-10-06 — QLoRA training pipeline: `src/skillgen/{data,train}.py`, `configs/qlora.yaml`, `scripts/train.py`, `scripts/length_report.py`, `notebooks/05_qlora_training.ipynb` (Kaggle T4). Over-length examples are DROPPED, never truncated; mask verification asserts before training. 6 new tests (stdlib).
 - 2026-10-06 — Token lengths measured with the Qwen2.5 tokenizer (ChatML incl. system prompt). Train: p50 3,845 · p90 21,028 · p95 34,437 · max 2,390,254. Fit at 4096: train 426/800, val 58/100; at 8192: train 582/800, val 71/100.
+- 2026-10-06 — Added configs/smoke.yaml (3 steps on the 16 longest examples: VRAM + s/step) and configs/overfit.yaml (20 examples, 8 epochs: pipeline must drive train loss near 0), plus scripts/kaggle_push.py to run any config as a private Kaggle T4 kernel. Not run yet.
 - 2026-10-06 — Decision: max_seq_length 8192 (batch 1 × accum 16, eval every 15 steps). VRAM on T4 not measured yet.
 
 ## In progress / blocked

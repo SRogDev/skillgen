@@ -68,6 +68,15 @@ def filter_by_length(
     return kept, dropped
 
 
+def take_limit(recs: list[dict], limit: int | None) -> list[dict]:
+    """First `limit` records (smoke/overfit runs); None keeps all."""
+    if limit is None:
+        return recs
+    if limit <= 0:
+        raise ValueError(f"limit must be positive or None, got {limit}")
+    return recs[:limit]
+
+
 def length_report(dropped: list[dict], total: int, max_len: int) -> dict:
     return {
         "max_seq_length": max_len,

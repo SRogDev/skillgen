@@ -12,7 +12,7 @@ from pathlib import Path
 
 import yaml
 
-from skillgen.data import filter_by_length, length_report, load_split, to_messages
+from skillgen.data import filter_by_length, length_report, load_split, take_limit, to_messages
 
 # Qwen2.5 / ChatML turn markers (PLAN §21). Change together with the base model.
 RESPONSE_PARTS = {
@@ -63,16 +63,33 @@ def render(rec: dict, tokenizer) -> str:
     return tokenizer.apply_chat_template(to_messages(rec), tokenize=False)
 
 
-def prepare_dataset(split: str, tokenizer, max_len: int, out_dir: Path):
-    """Render with the chat template, drop over-length examples, log what was dropped."""
+def prepare_dataset(split: str, tokenizer, max_len: int, out_dir: Path,
+                    limit: int | None = None, longest_first: bool = False):
+    """Render with the chat template, drop over-length examples, log what was dropped.
+
+    `limit` keeps the first N survivors (smoke/overfit). `longest_first` sorts survivors by
+    length before limiting, so a smoke run hits peak VRAM.
+    """
     from datasets import Dataset
     recs = load_split(split)
-    count = lambda r: len(tokenizer(render(r, tokenizer), add_special_tokens=False)["input_ids"])
+    n_tok = {}
+
+    def count(r):
+        n = len(tokenizer(render(r, tokenizer), add_special_tokens=False)["input_ids"])
+        n_tok[id(r)] = n
+        return n
+
     kept, dropped = filter_by_length(recs, count, max_len)
     report = length_report(dropped, len(recs), max_len)
+    if longest_first:
+        kept = sorted(kept, key=lambda r: n_tok[id(r)], reverse=True)
+    kept = take_limit(kept, limit)
+    report["used"] = len(kept)
+    report["max_tokens_used"] = max(n_tok[id(r)] for r in kept)
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / f"length_report_{split}.json").write_text(json.dumps(report, indent=1))
-    print(f"[{split}] kept {report['kept']}/{report['total']} at max_seq_length={max_len}")
+    print(f"[{split}] kept {report['kept']}/{report['total']} at max_seq_length={max_len}; "
+          f"using {len(kept)} (longest {report['max_tokens_used']} tokens)")
     return Dataset.from_list([{"text": render(r, tokenizer)} for r in kept]), report
 
 
@@ -85,6 +102,7 @@ def configure_training(cfg: dict, out_dir: Path, bf16: bool):
         packing=False,  # PLAN §23
         learning_rate=float(t["lr"]),
         num_train_epochs=t["epochs"],
+        max_steps=t.get("max_steps", -1),  # >0 overrides epochs (smoke test)
         per_device_train_batch_size=t["per_device_batch"],
         per_device_eval_batch_size=1,
         gradient_accumulation_steps=t["grad_accum"],
@@ -142,24 +160,36 @@ def train(config_path: str) -> Path:
     model, tokenizer = load_model(cfg)
     model = configure_lora(model, cfg)
     max_len = cfg["training"]["max_seq_length"]
-    train_ds, train_rep = prepare_dataset("train", tokenizer, max_len, out_dir)
-    val_ds, val_rep = prepare_dataset("val", tokenizer, max_len, out_dir)
+    t = cfg["training"]
+    train_ds, train_rep = prepare_dataset("train", tokenizer, max_len, out_dir,
+                                          t.get("train_limit"), t.get("longest_first", False))
+    val_ds, val_rep = prepare_dataset("val", tokenizer, max_len, out_dir,
+                                      t.get("val_limit"), t.get("longest_first", False))
+    patience = t.get("early_stopping_patience")
+    callbacks = [EarlyStoppingCallback(early_stopping_patience=patience)] if patience else []
 
     trainer = SFTTrainer(
         model=model, processing_class=tokenizer,
         train_dataset=train_ds, eval_dataset=val_ds,
         args=configure_training(cfg, out_dir, env["bf16"]),
-        callbacks=[EarlyStoppingCallback(early_stopping_patience=cfg["training"]["early_stopping_patience"])],
+        callbacks=callbacks,
     )
     instr, resp = RESPONSE_PARTS[cfg["model"]["family"]]
     trainer = train_on_responses_only(trainer, instruction_part=instr, response_part=resp)
     verify_masking(trainer, tokenizer)
 
-    result = trainer.train(resume_from_checkpoint=cfg["training"].get("resume_from_checkpoint"))
+    import torch
+    torch.cuda.reset_peak_memory_stats()
+    result = trainer.train(resume_from_checkpoint=t.get("resume_from_checkpoint"))
+    peak_vram_gb = round(torch.cuda.max_memory_reserved() / 1e9, 2)
+    print(f"[vram] peak reserved {peak_vram_gb} GB of {env['vram_gb']} GB")
     adapter_dir = save_adapter(model, tokenizer, out_dir)
     (out_dir / "run_meta.json").write_text(json.dumps({
         "config": cfg, "env": env, "git_commit": _git_commit(),
         "train_kept": train_rep["kept"], "val_kept": val_rep["kept"],
+        "train_used": train_rep["used"], "val_used": val_rep["used"],
+        "peak_vram_reserved_gb": peak_vram_gb,
+        "log_history": trainer.state.log_history,
         "best_checkpoint": trainer.state.best_model_checkpoint,
         "best_eval_loss": trainer.state.best_metric,
         "train_metrics": result.metrics,

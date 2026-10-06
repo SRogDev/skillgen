@@ -1,0 +1,38 @@
+# SMOKE: does 8192 fit in T4 VRAM and how long is one step? Same model/LoRA as E1.
+# 3 optimizer steps on the 16 LONGEST train examples (peak memory), 1 eval on 5 val examples.
+experiment_id: skillgen-qlora-v1-smoke
+output_dir: experiments
+
+model:
+  name: unsloth/Qwen2.5-7B-Instruct-bnb-4bit   # base not locked yet (STATUS.md)
+  family: qwen                                 # selects response markers for masking
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.0
+  bias: none
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+training:
+  max_seq_length: 8192        # decided 2026-10-06. measured: 582/800 train, 71/100 val fit; longer are DROPPED
+  per_device_batch: 1         # 8192 tokens on a 16 GB T4: batch 1 (VRAM not measured yet)
+  grad_accum: 16              # effective batch 16 (§18; §24 says 8, §18 wins)
+  lr: 2.0e-4
+  epochs: 2
+  warmup_ratio: 0.03
+  weight_decay: 0.01
+  optimizer: adamw_8bit
+  scheduler: cosine
+  max_grad_norm: 1.0
+  max_steps: 3                # overrides epochs
+  train_limit: 16
+  val_limit: 5
+  longest_first: true         # hit peak VRAM on purpose
+  eval_steps: 3
+  early_stopping_patience: null
+  seed: 42
+  resume_from_checkpoint: null
+
+tracking:
+  report_to: none             # set to wandb once WANDB_API_KEY is in Kaggle secrets

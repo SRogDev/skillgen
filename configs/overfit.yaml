@@ -1,0 +1,36 @@
+# OVERFIT: can the pipeline learn at all? Train loss on 20 examples should fall close to 0.
+# If it does not, the bug is in data/masking/template, not in hyperparameters.
+experiment_id: skillgen-qlora-v1-overfit
+output_dir: experiments
+
+model:
+  name: unsloth/Qwen2.5-7B-Instruct-bnb-4bit   # base not locked yet (STATUS.md)
+  family: qwen                                 # selects response markers for masking
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.0
+  bias: none
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+training:
+  max_seq_length: 8192        # decided 2026-10-06. measured: 582/800 train, 71/100 val fit; longer are DROPPED
+  per_device_batch: 1         # 8192 tokens on a 16 GB T4: batch 1 (VRAM not measured yet)
+  grad_accum: 4               # effective batch 4: 5 steps/epoch on 20 examples
+  lr: 2.0e-4
+  epochs: 8
+  warmup_ratio: 0.03
+  weight_decay: 0.01
+  optimizer: adamw_8bit
+  scheduler: cosine
+  max_grad_norm: 1.0
+  train_limit: 20
+  val_limit: 5
+  eval_steps: 10
+  early_stopping_patience: null  # we WANT it to overfit
+  seed: 42
+  resume_from_checkpoint: null
+
+tracking:
+  report_to: none             # set to wandb once WANDB_API_KEY is in Kaggle secrets
