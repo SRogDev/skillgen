@@ -1,0 +1,33 @@
+# E1 baseline QLoRA (PLAN §18). One change per experiment; copy this file per run.
+experiment_id: skillgen-qlora-v1-e1
+output_dir: experiments
+
+model:
+  name: unsloth/Qwen2.5-7B-Instruct-bnb-4bit   # base not locked yet (STATUS.md)
+  family: qwen                                 # selects response markers for masking
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.0
+  bias: none
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+training:
+  max_seq_length: 4096        # measured: 426/800 train, 58/100 val fit; longer are DROPPED
+  per_device_batch: 2
+  grad_accum: 8               # effective batch 16 (§18; §24 says 8, §18 wins)
+  lr: 2.0e-4
+  epochs: 2
+  warmup_ratio: 0.03
+  weight_decay: 0.01
+  optimizer: adamw_8bit
+  scheduler: cosine
+  max_grad_norm: 1.0
+  eval_steps: 25              # fewer kept examples -> ~27 steps/epoch, eval more often
+  early_stopping_patience: 3
+  seed: 42
+  resume_from_checkpoint: null
+
+tracking:
+  report_to: none             # set to wandb once WANDB_API_KEY is in Kaggle secrets
