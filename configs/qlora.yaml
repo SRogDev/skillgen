@@ -14,9 +14,9 @@ lora:
   target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
 
 training:
-  max_seq_length: 4096        # measured: 426/800 train, 58/100 val fit; longer are DROPPED
-  per_device_batch: 2
-  grad_accum: 8               # effective batch 16 (§18; §24 says 8, §18 wins)
+  max_seq_length: 8192        # decided 2026-10-06. measured: 582/800 train, 71/100 val fit; longer are DROPPED
+  per_device_batch: 1         # 8192 tokens on a 16 GB T4: batch 1 (VRAM not measured yet)
+  grad_accum: 16              # effective batch 16 (§18; §24 says 8, §18 wins)
   lr: 2.0e-4
   epochs: 2
   warmup_ratio: 0.03
@@ -24,7 +24,7 @@ training:
   optimizer: adamw_8bit
   scheduler: cosine
   max_grad_norm: 1.0
-  eval_steps: 25              # fewer kept examples -> ~27 steps/epoch, eval more often
+  eval_steps: 15              # ~37 steps/epoch -> ~5 evals over 2 epochs, so patience 3 can act
   early_stopping_patience: 3
   seed: 42
   resume_from_checkpoint: null
