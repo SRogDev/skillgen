@@ -5,5 +5,26 @@ description = "SkillGen — dataset pipelines for training a skill-generator mod
 requires-python = ">=3.12"
 dependencies = []
 
+[project.optional-dependencies]
+# GPU training stack (Kaggle T4). Not needed for data/eval/tests.
+train = [
+    "unsloth",
+    "trl",
+    "transformers",
+    "datasets",
+    "peft",
+    "bitsandbytes",
+    "accelerate",
+    "pyyaml",
+    "wandb",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [dependency-groups]
 dev = []
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

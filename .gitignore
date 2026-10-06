@@ -8,3 +8,4 @@ data/dataset_skillgen_1000.jsonl
 # Working files
 data/instr_parts/
 __pycache__/
+experiments/
