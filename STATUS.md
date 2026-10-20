@@ -12,7 +12,7 @@ Last updated: 2026-10-20.
 | Phase 3 | QLoRA training pipeline (prepare/train, configs E1–E6) + CPU smoke | **Done — 2026-10-20 (code + SMOKE); real E1 (7B QLoRA) pending Kaggle GPU** |
 | Phase 4 | Evaluation tooling (paired comparison, failure analysis, forgetting check) + experiment registry | **Done — 2026-10-20 (tooling + SMOKE demos); real E0-vs-E1 comparisons and ablation runs (E1–E6) pending Kaggle GPU** |
 | Phase 5 | Serving / inference path, export (merged model / GGUF), model card + project docs | **Done — 2026-10-20 (code + docs); executing the export with a real adapter pending Kaggle GPU** |
-| Final | Full Spanish learning guide (`docs/GUIA_COMPLETA.md`) | Pending — the only remaining deliverable |
+| Final | Full Spanish learning guide (`docs/GUIA_COMPLETA.md`) + §31 expert-set curation scaffold (`data/expert/`) | **Done — 2026-10-20** (guide completed: Fases 4–5, Kaggle runbook with gates, Roger's two pending tasks; scaffold: README + `_template.E000.json` + `RUBRICA.md` + `scripts/validate_expert_set.py` + `tests/test_expert_set.py`) |
 
 ## Phase 0 results (measured, not estimated)
 
@@ -293,7 +293,8 @@ this phase**; real 7B results still do not exist.
 - Full suite: **86/86 pytest green** (72 previous + 14 new); the old
   stdlib test scripts still pass. (No TestClient deprecation warnings
   were emitted in the test runs.)
-- **Remaining:** the final Spanish learning guide
-  (`docs/GUIA_COMPLETA.md`) is the only deliverable left in this
-  build; the real Kaggle runs (E0/E1, ablations, ARC-50, export
-  execution) remain pending as before.
+- **Remaining:** the real Kaggle runs (E0/E1, ablations, ARC-50, export
+  execution) plus Roger's two tasks: passing the Kaggle key and curating
+  the 20-case expert set (scaffold ready in `data/expert/`).
+- Full suite: **91/91 pytest green** (86 previous + 5 new expert-set tests);
+  the old stdlib test scripts still pass.

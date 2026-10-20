@@ -186,6 +186,63 @@ jamás se delega al comportamiento interno de una librería.
 
 ## Fase 4 — Evaluación seria: estadística, fallos y olvido
 
-**Qué se hizo.** `src/skillgen/evaluation/compare.py`: comparación
-**pareada** entre dos archivos de predicc
-...[truncated 7249 chars]
+**Qué se hizo.** `src/skillgen/evaluation/compare.py`: comparación **pareada** entre dos archivos de predicciones — no compares promedios a ciegas, compara *qué cambió por ítem*: cuántos se arreglaron, cuántos se rompieron. Conteo pareado (both/only-A/only-B/both-fail sobre l1_parse, l2_valid o l5), McNemar exacto (binomial de dos colas vía `math.comb` — stdlib, sin scipy), intervalos de Wilson para las tasas, y bootstrap pareado (seed 42, 2000 resamples) para el intervalo de la diferencia de SkillGen Score. Decisión documentada: el bootstrap corre sobre la diferencia de métricas binarias porque las contribuciones por ítem del Score no se guardan en `scores.json`. `render_comparison_md` emite el esqueleto §47 BEST/WORST/REGRESSION/NEW-FAILURE. 15 tests (RED → GREEN), incluido el McNemar calculado a mano: b=9, c=1 → p = 0.021484375.
+
+**Por qué pareada y no dos promedios.** Con n=100 en el test, una mejora de +2 puntos puede ser ruido. McNemar te dice si los cambios por ítem son sistemáticos; el bootstrap te da el intervalo de la diferencia. Es la diferencia entre "subió 2 puntos" y "subió 2 puntos y el intervalo del 95% no cruza cero".
+
+**Análisis de fallos.** `scripts/failure_analysis.py` mapea las señales del harness a la taxonomía §48 (E1–E10), con el mapeo y las lagunas honestas en `docs/ERROR_TAXONOMY.md`: el repo solo nombra los anclajes (E1 estructura inválida, E10 fallo de formato); E2–E9 son una operacionalización local documentada; un fallo de L5 aguas abajo de un L2 no se cuenta dos veces como E8. El primer archivo real de fallos (`experiments/e0_smoke/failures.md`): **E2 (campo requerido ausente) ×5, E4 (nombre inválido) ×5** — todos los ítems del smoke inventan el esquema (5 campos ausentes + nombres no-kebab). Ese es exactamente el fallo que el SFT debe corregir: la hipótesis de la Fase 2, escrita como taxonomía medible.
+
+**Chequeo de olvido (forgetting).** `src/skillgen/evaluation/forgetting.py`: antes/después por loglikelihood (argmax sobre 4 opciones, sin generación — barato y determinista). `load_arc_questions()` carga ARC-Challenge desde HF cuando hay red y cae al set local original de 20 preguntas (ciencia/historia/mates/geografía/idioma), etiquetado por fuente — el set local **NO es ARC**. SMOKE: base 0.5B **0.8000 (16/20)** vs adaptador del smoke **0.8000 (16/20)**, predicciones idénticas — esperado para un adaptador de 10 pasos; la regla §37 (>5% de caída = hallazgo) aplica a la corrida real (50 preguntas ARC, adaptador E1, Kaggle).
+
+**El registro de experimentos.** `experiments/README.md`: E0a–E7 con estados honestos (E0a solo-smoke, E0b implementado sin ninguna corrida, E1 solo-smoke, E2–E6 listos-pendientes-GPU, E7 solo-diseño) y la puerta §39: un candidato se promueve **solo si** su SkillGen Score ≥ score actual + 2 puntos **y** no hay regresión en el expert set. Si no, se rechaza.
+
+**Preguntas de entrevista:**
+- *"¿Por qué McNemar y no un t-test?"* → Porque comparo el mismo ítem antes y después: los datos son pareados y binarios (arreglado/roto). El t-test asume normalidad de diferencias continuas; McNemar es el test exacto para la tabla 2×2 de discordantes.
+- *"¿Cómo sabes que no estás overfiteando a tu métrica?"* → Tres defensas: el test está congelado y nunca se toca; el expert set es curaduría humana independiente con rúbrica manual; y el chequeo de olvido mide que no destruí conocimiento general.
+
+---
+
+## Fase 5 — Serving, export y honestidad documentada
+
+**Qué se hizo.** `src/skillgen/serving/app.py`: una API FastAPI (`uv run uvicorn skillgen.serving.app:app`) que implementa el pipeline §42: generate → parse L1 → validación de esquema L2 (**importada de `scripts/eval_harness.py`, nunca reimplementada** — el mismo código que evalúa es el que valida en producción) → reparación alimentando los errores de vuelta al modelo (máx. 2 reintentos) → éxito `200 {blueprint, validation_report}` o rechazo tipado `422 blueprint_invalid` (3 intentos, últimos errores) o `502 backend_error`. Los backends están detrás de un protocolo `ModelBackend`: un `FakeBackend` determinista para tests/demo y un `TransformersBackend` **perezoso** (carga el modelo en el primer `generate()`, nunca al importar — si cargara al importar, ni los tests podrían correr sin GPU), con el system prompt §8 verbatim y los defaults §41 (temperature 0.3, top_p 0.9, max_new_tokens 4096, repetition_penalty 1.1), decodificando solo tokens nuevos, y adaptador opcional vía `SKILLGEN_ADAPTER_PATH`. El backend por defecto es el fake de demo — devuelve un blueprint real corto de train (`larksuite_cli__good-skill`, pasa L2) — **a menos que `SKILLGEN_MODEL_ID` esté seteado**, y `GET /health` siempre nombra el backend activo (`fake-demo (NOT a trained model)` por defecto). Nadie puede confundir la demo con el modelo entrenado: el endpoint lo declara.
+
+**Por qué el loop de reparación.** La Fase 2 demostró que el modelo base genera JSON coherente pero inventa el esquema. En producción no puedes devolver eso: el loop generate → validar → reparar convierte un fallo silencioso en un rechazo tipado. Es la diferencia entre "a veces sale mal" y "sale bien o te dice por qué no".
+
+**Export.** `scripts/export_model.py` implementa el §44 como plan ordenado explícito: cargar base+adaptador → **merge en 16-bit (`merged_16bit`)** → **GGUF `q4_k_m` desde el modelo mergeado** → instrucciones de `ollama create`. Regla dura testeada: **nunca merge directo a 4-bit** (cuantizar el adaptador antes de fusionarlo degrada los pesos que acabas de entrenar). Sin GPU + unsloth, `--dry-run` imprime el plan y los comandos exactos y sale 0; sin `--dry-run` sale 2 con mensaje claro. En esta fase no se exportó nada: no hay adaptador real todavía.
+
+**Honestidad documentada.** `MODEL_CARD.md` (raíz): base PROVISIONAL, **no entrenado a 7B, sin pesos publicados, los resultados reales del 7B no existen** — la única evidencia son los números SMOKE/0.5B etiquetados. `docs/FINDINGS.md` (hallazgos acumulados Fases 0–5) y `docs/DECISIONS.md` (9 ADRs). 8 tests de serving (RED → GREEN: el RED fue `ModuleNotFoundError`), 6 de export. Suite: **86/86 pytest en verde**.
+
+**Preguntas de entrevista:**
+- *"¿Por qué no cargas el modelo al arrancar la API?"* → Porque entonces cada test, cada import y cada despliegue necesitaría la GPU y los pesos. Carga perezosa: el proceso arranca barato y el primer request paga el costo — y `/health` te dice qué backend está vivo.
+- *"¿Por qué merge en 16-bit antes de cuantizar a GGUF?"* → El adaptador vive en fp16; fusionarlo al base en 16-bit preserva lo aprendido y luego cuantizas el modelo completo una sola vez. Merge directo a 4-bit = cuantizar dos veces = degradación compuesta.
+
+---
+
+## El runbook de Kaggle: las puertas en orden
+
+Cuando pases la key, la secuencia es esta — cada puerta bloquea la siguiente:
+
+1. **Entorno** (`notebooks/05_qlora_training.ipynb`): instala unsloth + bitsandbytes en la celda, asserts de GPU (T4) y CUDA disponible. Sin GPU no hay corrida: la puerta es el assert, no tu palabra.
+2. **Modelo base**: sigue **PROVISIONAL**. Antes de congelarlo hay que verificar los candidatos 2026 — Mistral Large 4 publica pesos el 27 de octubre con licencia custom (aviso programado el 2 de noviembre). Si la licencia lo permite, se compara antes de congelar; si no, Qwen2.5-7B queda congelado por decisión documentada en `docs/DECISIONS.md`.
+3. **Masking**: el código decodifica los labels ≠ -100 del primer ejemplo e imprime el texto — debe ser **exactamente el blueprint + `<|im_end|>`**. Si sale otra cosa, no entrenas: paras y depuras el template.
+4. **E0 antes que E1**: corre el baseline del 7B (zero-shot y few-shot) sobre val/test completos con el harness. Sin baseline, el fine-tune es indefendible: es el número contra el que se mide todo.
+5. **E1**: QLoRA con `configs/qlora_e1.yaml` (~73 pasos sobre los 582 registros). Loss de entrenamiento sana orientativa: **0,5–1,0**. Guarda el adaptador.
+6. **Comparación pareada** (`src/skillgen/evaluation/compare.py`): E0 vs E1 sobre el test. Lee primero los conteos pareados y McNemar, después el Score. **Puerta §39**: se promueve solo si SkillGen Score ≥ actual + 2 puntos **y** sin regresión en el expert set.
+7. **Ablaciones** E2–E6 (una variable por experimento, garantizado por test) — solo si E1 pasa la puerta; si no, el análisis de fallos manda.
+8. **Olvido**: 50 preguntas ARC reales con el adaptador E1. Regla §37: caída >5% = hallazgo que se reporta, no se esconde.
+9. **Export** (`scripts/export_model.py` sin `--dry-run`): merge 16-bit → GGUF q4_k_m → Ollama. Actualiza `MODEL_CARD.md` con los números reales.
+
+Reglas que no se negocian: el test congelado no se toca ni se entrena con él; W&B solo si hay key; todo resultado negativo se documenta en `docs/FINDINGS.md`.
+
+---
+
+## Lo que solo tú puedes hacer
+
+Dos cosas, y las dos están preparadas para que sean rápidas:
+
+1. **Pasar la key de Kaggle** — cuando la tengas, el notebook 05 corre en un clic. Sin la key, todo lo anterior es tubería probada esperando GPU.
+2. **Curar el expert set (PLAN §31)** — 20 casos difíciles: skills de skills.sh especialmente complejas y/o instrucciones trampa redactadas por ti, con rúbrica manual 0–100. Es el conjunto con más peso cualitativo y el veto de la puerta §39. Tienes el andamiaje listo en `data/expert/`: `README.md` (cómo curar cada caso en ~10 minutos, ideas de trampas ligadas a la taxonomía de fallos E1–E10), `_template.E000.json` (el formato exacto), `RUBRICA.md` (5 dimensiones × 20 puntos), y `scripts/validate_expert_set.py` para comprobar el formato. **No redactes los casos por redactar**: cada uno debe ser un caso que tú puedas defender en una entrevista — por eso los curas tú, no un script.
+
+---
+
+*Fin de la guía. El proyecto está completo como código; los números reales del 7B — E0, E1, ablaciones, olvido con ARC-50, export ejecutado — esperan la corrida en Kaggle. Cuando existan, `docs/FINDINGS.md` es donde se anotan.*
