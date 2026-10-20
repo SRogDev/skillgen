@@ -3,7 +3,17 @@ name = "skillgen"
 version = "0.1.0"
 description = "SkillGen — dataset pipelines for training a skill-generator model"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "matplotlib>=3.11.2",
+    "transformers>=5.20.2",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
 
 [dependency-groups]
-dev = []
+dev = [
+    "jupyter>=1.1.1",
+    "pytest>=9.1.1",
+]
