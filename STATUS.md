@@ -10,7 +10,7 @@ Last updated: 2026-10-20.
 | Phase 1 | PyTorch foundations + LoRA from scratch | **Done — 2026-10-20** |
 | Phase 2 | Baseline pipeline (E0): prompt construction, generation, harness scoring + CPU smoke run | **Done — 2026-10-20 (pipeline + SMOKE); real E0 (7B, full val/test) pending Kaggle GPU** |
 | Phase 3 | QLoRA training pipeline (prepare/train, configs E1–E6) + CPU smoke | **Done — 2026-10-20 (code + SMOKE); real E1 (7B QLoRA) pending Kaggle GPU** |
-| Phase 4 | Evaluation + ablation runs (E1–E6 on Kaggle) | Pending |
+| Phase 4 | Evaluation tooling (paired comparison, failure analysis, forgetting check) + experiment registry | **Done — 2026-10-20 (tooling + SMOKE demos); real E0-vs-E1 comparisons and ablation runs (E1–E6) pending Kaggle GPU** |
 | Phase 5 | Serving / inference path, export (merged model / GGUF) + full Spanish learning guide | Pending |
 
 ## Phase 0 results (measured, not estimated)
@@ -183,3 +183,51 @@ its tokenizer only, on CPU.
 ⚠️ `data/splits/test.jsonl` is **frozen** — never train on it, never modify
 any split file. Splits: 800/100/100, seed 7, sha256 in
 `data/splits/manifest.json`.
+
+## Phase 4 results (evaluation tooling + SMOKE demos)
+
+Tooling only — **no real experiment comparison has run**; E0 (7B) and
+E1 (7B QLoRA) are both still pending Kaggle, and the registry
+(`experiments/README.md`) says so per experiment: E0a smoke-only,
+E0b pipeline implemented + unit-tested with **no run at all yet**,
+E1 smoke-only, E2–E6 configs ready-pending-GPU, E7 design-only.
+
+- **compare.py** (`src/skillgen/evaluation/compare.py`, stdlib only):
+  `paired_counts` (both/only-A/only-B/both-fail on l1_parse, l2_valid
+  or l5), `mcnemar_exact` (two-sided exact binomial via `math.comb`),
+  `wilson_ci`, and `score_diff_ci` — a paired bootstrap (seed 42, 2000
+  resamples) over the binary-metric difference (documented choice:
+  per-item SkillGen Score contributions are not stored in scores.json).
+  `render_comparison_md` emits the §47 BEST/WORST/REGRESSION/NEW-FAILURE
+  skeleton. 15 tests in `tests/test_compare.py` (RED → GREEN), including
+  the hand-computed McNemar value for b=9, c=1: p = 0.021484375.
+- **Failure analysis** (`scripts/failure_analysis.py` +
+  `docs/ERROR_TAXONOMY.md`): maps harness signals to §48 codes E1–E10.
+  Honest gap: §48 in the repo names only the anchors (E1 invalid
+  structure, E10 format failure); E2–E9 are a documented local
+  operationalisation, unmapped strings fall to E10/other, and an L5
+  failure downstream of an L2 failure is not double-counted as E8.
+  Real output on the e0_smoke scores (`experiments/e0_smoke/failures.md`):
+  **E2 (missing required field) ×5, E4 (invalid name) ×5**, all other
+  codes 0 — every smoke item invents the schema (5 missing fields +
+  a non-kebab name). That is the failure SFT must fix.
+- **Forgetting check** (`src/skillgen/evaluation/forgetting.py`):
+  loglikelihood argmax over 4 options per question (no generation).
+  `load_arc_questions()` loads ARC-Challenge from HF when available and
+  falls back to the original local 20-question set (science/history/
+  math/geography/language), labelled by source — the local set is
+  **NOT ARC**. SMOKE run (`experiments/forgetting_smoke/`): base
+  Qwen2.5-0.5B-Instruct **0.8000 (16/20)** vs the Phase-3 smoke adapter
+  **0.8000 (16/20)**, identical predictions on all 20, drop 0.0 points —
+  expected for a 10-step adapter; the §37 rule (>5% drop = finding)
+  applies to the real run (50 ARC questions, E1 adapter, Kaggle).
+- **Notebook** `06_evaluation.ipynb` (executed, zero errors, Spanish):
+  the real e0_smoke failure analysis; a `compare.py` demo against a
+  clearly-labelled **synthetic** degraded copy (predictions truncated
+  to 200 chars — demo data, not an experiment): L1 paired counts
+  only_a=5/only_b=0, McNemar p = 0.0625; L2 both_fail=5, p = 1.0000;
+  the forgetting smoke; and how the Kaggle E1-vs-E0 comparison will be
+  read (paired counts first, §39 gate: promote only if SkillGen
+  Score ≥ current + 2 pts and no expert-set regression).
+- Full suite: **72/72 pytest green** (56 previous + 16 new); the old
+  stdlib test scripts still pass (eval harness 5/5, freeze splits 4/4).
