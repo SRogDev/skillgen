@@ -5,8 +5,20 @@ description = "SkillGen — dataset pipelines for training a skill-generator mod
 requires-python = ">=3.12"
 dependencies = [
     "matplotlib>=3.11.2",
+    "torch>=2.14.1",
     "transformers>=5.20.2",
 ]
+
+# Torch: CPU wheel ONLY for local dev on this VM (the default Linux wheel
+# pulls multi-GB CUDA dependencies). Kaggle provides its own CUDA torch,
+# so this pin only affects local CPU work — see notebooks 02/03.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
