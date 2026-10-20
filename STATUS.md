@@ -9,9 +9,9 @@ Last updated: 2026-10-20.
 | Phase 0 | EDA, environment notebook, dataset length decision | **Done — 2026-10-20** |
 | Phase 1 | PyTorch foundations + LoRA from scratch | **Done — 2026-10-20** |
 | Phase 2 | Baseline pipeline (E0): prompt construction, generation, harness scoring + CPU smoke run | **Done — 2026-10-20 (pipeline + SMOKE); real E0 (7B, full val/test) pending Kaggle GPU** |
-| Phase 3 | Evaluation + ablations design and runs | Pending |
-| Phase 4 | Serving / inference path | Pending |
-| Phase 5 | Export (merged model / GGUF) + full Spanish learning guide | Pending |
+| Phase 3 | QLoRA training pipeline (prepare/train, configs E1–E6) + CPU smoke | **Done — 2026-10-20 (code + SMOKE); real E1 (7B QLoRA) pending Kaggle GPU** |
+| Phase 4 | Evaluation + ablation runs (E1–E6 on Kaggle) | Pending |
+| Phase 5 | Serving / inference path, export (merged model / GGUF) + full Spanish learning guide | Pending |
 
 ## Phase 0 results (measured, not estimated)
 
@@ -123,6 +123,54 @@ it produces plausible JSON that does not follow the Skill Blueprint
 schema — precisely what fine-tuning is supposed to fix. **Real E0
 (`Qwen/Qwen2.5-7B-Instruct`, full val/test) is still pending the
 Kaggle GPU run.**
+
+## Phase 3 results (QLoRA training pipeline + CPU SMOKE)
+
+Code in `src/skillgen/training/prepare.py` + `train.py` (+ `config.py`),
+deps via uv: **trl 1.16.0, peft 0.21.2, accelerate 1.15.0, datasets
+5.1.0** (transformers 5.20.x / torch 2.14.1+cpu as before).
+`bitsandbytes` and `unsloth` are deliberately NOT local deps (bnb needs
+CUDA; unsloth pins its own torch stack) — they install in the Kaggle
+notebook cells only.
+
+- **prepare.py**: renders prompt/full text with the model's native chat
+  template, tokenizes both with no extra special tokens, and builds
+  labels = -100 on prompt positions + full ids after. The Qwen template
+  renders the assistant turn as `{content}<|im_end|>\n`; examples are
+  cut right after `<|im_end|>` so each ends exactly at EOS, and the
+  prompt-prefix property is asserted (raise, never silently mislabel).
+  Length rule is the Phase-0 decision (8192, filter-never-truncate).
+  `train.py`'s §21 gate re-verifies masking on the first example and
+  prints the decoded unmasked text before training starts.
+- **TRL API (inspected, not assumed)**: trl 1.16.0's `SFTTrainer`
+  treats a dataset with an `input_ids` column as pre-processed and
+  leaves a provided `labels` column as is — so prepare.py's certified
+  labels are the trained labels; no trainer-internal masking is used.
+  Two adaptations vs. the classic recipe: transformers 5.x removed
+  `warmup_ratio` (the config's 0.03 is passed as `warmup_steps=0.03`,
+  which now accepts a float ratio), and TRL's bf16 default is pinned
+  off explicitly (transformers 5.x rejects bf16 on CPU-only setups).
+- **Configs** (`configs/`): `qlora_e1.yaml` (§18 recipe, 8192 override,
+  PROVISIONAL base noted) + E2/E3×2/E4×2/E5/E6×2 one-change variants +
+  `smoke_cpu.yaml`. E6 sizes (250/500) come from the **filtered 582**
+  pool, noted in the config comments. 14 new tests in
+  `tests/test_prepare.py` (masking on a real record, filter,
+  config-diff: each variant differs from E1 in exactly its intended
+  key); full suite **56/56 pytest green**.
+- **SMOKE run (`experiments/e1_smoke/`, NOT E1)**: 0.5B, plain LoRA r8
+  (quantization off), 20 shortest filtered train records, 10 steps,
+  batch 2, 1 epoch, CPU; wall 804 s. Masking gate passed (decoded
+  unmasked = blueprint + `<|im_end|>` only). Train loss per step
+  **2.4453 → 1.8009** (mean 1.8634); val eval loss **2.0292 → 2.0031**.
+  Adapter saved (`adapter_model.safetensors` 17,640,136 bytes,
+  git-ignored; README + log committed).
+- **Notebooks**: `04_baseline.ipynb` (executed; E0a/E0b rationale,
+  harness layers, L4-skipped renormalisation over 0.85, one failed SMOKE
+  prediction dissected: invented schema — the failure fine-tuning must
+  fix) and `05_qlora_training.ipynb` (Kaggle production notebook for
+  E1, Spanish, NOT executed).
+- **Real E1 is still pending**: 7B QLoRA on Kaggle (notebook 05),
+  ~73 steps over the 582-record pool. No E1 numbers exist yet.
 
 ## Base model
 
