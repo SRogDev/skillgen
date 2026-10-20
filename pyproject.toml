@@ -6,12 +6,15 @@ requires-python = ">=3.12"
 dependencies = [
     "accelerate>=1.15.0",
     "datasets>=5.1.0",
+    "fastapi>=0.156.2",
     "matplotlib>=3.11.2",
     "peft>=0.21.2",
+    "pydantic>=2.14.1",
     "pyyaml>=6.0.3",
     "torch>=2.14.1",
     "transformers>=5.20.2",
     "trl>=1.16.0",
+    "uvicorn>=0.54.0",
 ]
 
 # Torch: CPU wheel ONLY for local dev on this VM (the default Linux wheel
@@ -31,6 +34,7 @@ testpaths = ["tests"]
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "jupyter>=1.1.1",
     "pytest>=9.1.1",
 ]

@@ -11,7 +11,8 @@ Last updated: 2026-10-20.
 | Phase 2 | Baseline pipeline (E0): prompt construction, generation, harness scoring + CPU smoke run | **Done — 2026-10-20 (pipeline + SMOKE); real E0 (7B, full val/test) pending Kaggle GPU** |
 | Phase 3 | QLoRA training pipeline (prepare/train, configs E1–E6) + CPU smoke | **Done — 2026-10-20 (code + SMOKE); real E1 (7B QLoRA) pending Kaggle GPU** |
 | Phase 4 | Evaluation tooling (paired comparison, failure analysis, forgetting check) + experiment registry | **Done — 2026-10-20 (tooling + SMOKE demos); real E0-vs-E1 comparisons and ablation runs (E1–E6) pending Kaggle GPU** |
-| Phase 5 | Serving / inference path, export (merged model / GGUF) + full Spanish learning guide | Pending |
+| Phase 5 | Serving / inference path, export (merged model / GGUF), model card + project docs | **Done — 2026-10-20 (code + docs); executing the export with a real adapter pending Kaggle GPU** |
+| Final | Full Spanish learning guide (`docs/GUIA_COMPLETA.md`) | Pending — the only remaining deliverable |
 
 ## Phase 0 results (measured, not estimated)
 
@@ -231,3 +232,68 @@ E1 smoke-only, E2–E6 configs ready-pending-GPU, E7 design-only.
   Score ≥ current + 2 pts and no expert-set regression).
 - Full suite: **72/72 pytest green** (56 previous + 16 new); the old
   stdlib test scripts still pass (eval harness 5/5, freeze splits 4/4).
+
+## Phase 5 results (serving, export, model card + project docs)
+
+Code + docs only — **no model was trained, downloaded or exported in
+this phase**; real 7B results still do not exist.
+
+- **Serving** (`src/skillgen/serving/app.py`, deps via uv: fastapi
+  0.156.2, uvicorn 0.54.0, pydantic 2.14.1; httpx as a dev dep for the
+  TestClient): `ModelBackend` protocol with `generate(user_text) ->
+  str`; `FakeBackend` (canned outputs in order, last one repeats);
+  `TransformersBackend` — **lazy** (loads on first `generate()`, not
+  at import/app creation), native chat template with the §8 system
+  prompt verbatim, §41 defaults (temperature 0.3, top_p 0.9,
+  max_new_tokens 4096, repetition_penalty 1.1, overridable), decodes
+  only new tokens, optional PEFT adapter via `SKILLGEN_ADAPTER_PATH`.
+  `create_app()` exposes `GET /health` (names the active backend) and
+  `POST /generate-skill`: the §42 loop — generate → harness L1 parse →
+  harness L2 schema validation (imported from
+  `scripts/eval_harness.py` via the same importlib pattern as
+  `baseline.py`, never reimplemented) → repair via the pure
+  `build_repair_text()` (original input + previous output + errors
+  verbatim), **max 2 retries** → success
+  `200 {blueprint, validation_report{valid, attempts, errors}}`;
+  exhausted retries → `422` typed `blueprint_invalid` (attempts 3,
+  last_errors); backend exception → `502` typed `backend_error`;
+  input guard min 1 / max 32,000 chars → 422. Default backend: env
+  `SKILLGEN_MODEL_ID` set → TransformersBackend; otherwise a demo
+  FakeBackend returning one real short train blueprint
+  (`larksuite_cli__good-skill`, passes L2), and `/health` reports it
+  as `fake-demo (NOT a trained model)`.
+- **Tests first (RED → GREEN):** `tests/test_serving.py` (8 tests,
+  TestClient + FakeBackend only) — RED was
+  `ModuleNotFoundError: No module named 'skillgen.serving'`; GREEN
+  covers health, valid path (attempts 1), repair path (attempts 2),
+  reject path (422, `blueprint_invalid`, attempts 3), empty input
+  (422), backend error (502), and `build_repair_text` including the
+  error strings verbatim.
+- **Export** (`scripts/export_model.py` + `tests/test_export.py`,
+  6 tests): `build_export_plan()` returns the explicit ordered §44
+  plan — load base+adapter → `merged_16bit` → `gguf` (quantization
+  `q4_k_m` by default, propagated into the step) **from the merged
+  model** → `ollama_create` instructions; tests enforce the ordering,
+  the GGUF source being the merged model, and that **no step merges
+  directly to 4-bit**. Execution via unsloth happens only when
+  unsloth is importable AND CUDA is available; on this VM `--dry-run`
+  prints the plan + the exact Kaggle/local-GPU commands and exits 0,
+  and without `--dry-run` it prints the plan and exits 2 with a clear
+  "requires GPU + unsloth; nothing was executed" message (no
+  traceback). Nothing was exported in this phase — there is no real
+  adapter to export yet.
+- **Docs:** `MODEL_CARD.md` (repo root: PROVISIONAL base, **NOT YET
+  TRAINED at 7B, no weights released**, intended/out-of-scope use,
+  training data incl. the 582-record ≤8192-token filter and its
+  underrepresentation limitation, 5-layer evaluation design + §39
+  gate, and current evidence citing **only** the labeled SMOKE / 0.5B
+  / pipeline-proof numbers), `docs/FINDINGS.md` (cumulative Phases
+  0–5 findings from the real artifacts + the pending-Kaggle list) and
+  `docs/DECISIONS.md` (9 ADR-lite entries).
+- Full suite: **86/86 pytest green** (72 previous + 14 new); the old
+  stdlib test scripts still pass. (Starlette's TestClient emits an
+  httpx deprecation warning — noted, not chased.)
+- **Remaining:** the final Spanish learning guide
+  (`docs/GUIA_COMPLETA.md`) is the only deliverable left in this
+  build; the real Kaggle runs (E0/E1, ablations, ARC-50, export
+  execution) remain pending as before.
