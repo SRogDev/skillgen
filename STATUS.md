@@ -291,8 +291,8 @@ this phase**; real 7B results still do not exist.
   0–5 findings from the real artifacts + the pending-Kaggle list) and
   `docs/DECISIONS.md` (9 ADR-lite entries).
 - Full suite: **86/86 pytest green** (72 previous + 14 new); the old
-  stdlib test scripts still pass. (Starlette's TestClient emits an
-  httpx deprecation warning — noted, not chased.)
+  stdlib test scripts still pass. (No TestClient deprecation warnings
+  were emitted in the test runs.)
 - **Remaining:** the final Spanish learning guide
   (`docs/GUIA_COMPLETA.md`) is the only deliverable left in this
   build; the real Kaggle runs (E0/E1, ablations, ARC-50, export
