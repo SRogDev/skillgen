@@ -126,3 +126,47 @@ the full plan, `docs/FINDINGS.md` the measured evidence behind them.
   honest about its provenance — and the gap is documented in
   `docs/ERROR_TAXONOMY.md` so the table can be reconciled if the
   original definitions surface.
+
+## 10. Unsloth is the engine for ALL GPU work (2026-10-23)
+
+- **Decision (Roger's explicit direction, 2026-10-23 — "Unsloth para
+  todo"):** Every GPU path in SkillGen runs through Unsloth:
+  **training** (`FastLanguageModel.from_pretrained` +
+  `get_peft_model` + `SFTTrainer`, via
+  `src/skillgen/training/unsloth_backend.py`, config key
+  `training.backend: unsloth` in E1 and all ablation configs),
+  **export** (`save_pretrained_gguf`, `scripts/export_model.py`),
+  **real serving inference** (`serving.UnslothBackend`:
+  `FastLanguageModel` + `for_inference`, selected with
+  `SKILLGEN_BACKEND=unsloth`), and the **Kaggle baselines E0a/E0b**
+  (`run_baseline.py --loader unsloth`). The notebook
+  `notebooks/05_qlora_training.ipynb` teaches and runs this API
+  surface directly, cell by cell.
+- **Deviation named honestly:** the 2026-10-20 build violated this
+  direction: `train.py` trained with plain transformers+PEFT+TRL,
+  and notebook 05 installed unsloth in a cell but **never imported
+  it** — only `export_model.py` used `FastLanguageModel` for real.
+  The 2026-10-23 fix corrects that; `docs/FINDINGS.md` records the
+  correction entry.
+- **Alternatives:** Keep plain transformers+PEFT+TRL as the training
+  engine (rejected by Roger: he wants to do this work — and learn
+  it — through Unsloth); use Unsloth for training only (rejected:
+  "para todo" — one engine across GPU paths keeps the Kaggle
+  workflow uniform).
+- **Consequences / the honest boundary:** (1) **Import order is a
+  rule, not a style**: `import unsloth` patches transformers/trl/peft,
+  so every entry point imports the Unsloth path *before* them
+  (`train.py` does this inside `run()`, before its lazy heavy
+  imports). (2) **Unsloth requires CUDA**, so CPU-local work cannot
+  be Unsloth and is not pretending to be: EDA, the fundamentals
+  notebooks, unit tests, the CPU smokes and the serving fake demo
+  stay on plain torch/transformers. The `peft` backend
+  (`configs/smoke_cpu.yaml` ONLY) exists solely so the training
+  pipeline can be smoke-proven on a GPU-less machine; it is not a
+  production path. (3) Without unsloth/CUDA, selecting an Unsloth
+  path fails with the typed `UnslothUnavailableError` (serving:
+  clean 502), never a raw traceback. (4) Nothing in this decision
+  changes the data pipeline: `prepare.py`'s certified assistant-only
+  labels feed `SFTTrainer` untouched — Unsloth optimises the model
+  side, and its `train_on_responses_only` alternative is deliberately
+  not used (DECISIONS #4).

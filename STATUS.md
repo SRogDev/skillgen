@@ -9,7 +9,7 @@ Last updated: 2026-10-20.
 | Phase 0 | EDA, environment notebook, dataset length decision | **Done — 2026-10-20** |
 | Phase 1 | PyTorch foundations + LoRA from scratch | **Done — 2026-10-20** |
 | Phase 2 | Baseline pipeline (E0): prompt construction, generation, harness scoring + CPU smoke run | **Done — 2026-10-20 (pipeline + SMOKE); real E0 (7B, full val/test) pending Kaggle GPU** |
-| Phase 3 | QLoRA training pipeline (prepare/train, configs E1–E6) + CPU smoke | **Done — 2026-10-20 (code + SMOKE); real E1 (7B QLoRA) pending Kaggle GPU** |
+| Phase 3 | QLoRA training pipeline (prepare/train, configs E1–E6) + CPU smoke | **Done — 2026-10-20 (code + SMOKE); real E1 (7B QLoRA) pending Kaggle GPU. Corrected 2026-10-23: production engine is Unsloth (see Phase 3 correction below)** |
 | Phase 4 | Evaluation tooling (paired comparison, failure analysis, forgetting check) + experiment registry | **Done — 2026-10-20 (tooling + SMOKE demos); real E0-vs-E1 comparisons and ablation runs (E1–E6) pending Kaggle GPU** |
 | Phase 5 | Serving / inference path, export (merged model / GGUF), model card + project docs | **Done — 2026-10-20 (code + docs); executing the export with a real adapter pending Kaggle GPU** |
 | Final | Full Spanish learning guide (`docs/GUIA_COMPLETA.md`) + §31 expert-set curation scaffold (`data/expert/`) | **Done — 2026-10-20** (guide completed: Fases 4–5, Kaggle runbook with gates, Roger's two pending tasks; scaffold: README + `_template.E000.json` + `RUBRICA.md` + `scripts/validate_expert_set.py` + `tests/test_expert_set.py`) |
@@ -124,6 +124,28 @@ it produces plausible JSON that does not follow the Skill Blueprint
 schema — precisely what fine-tuning is supposed to fix. **Real E0
 (`Qwen/Qwen2.5-7B-Instruct`, full val/test) is still pending the
 Kaggle GPU run.**
+
+## Phase 3 correction (2026-10-23) — Unsloth is the production engine
+
+Per Roger's explicit direction ("Unsloth para todo" — Unsloth for all
+GPU work), Phase 3's engine was corrected: the 2026-10-20 build
+trained via plain transformers+PEFT+TRL and notebook 05 installed
+unsloth without importing it. Now: `src/skillgen/training/
+unsloth_backend.py` (`FastLanguageModel` 4-bit load +
+`get_peft_model(use_gradient_checkpointing="unsloth")`, typed
+`UnslothUnavailableError` guard) is the production path —
+`training.backend: unsloth` in E1 and all E2–E6 configs, selected in
+`train.py` (which imports the Unsloth path before transformers/trl/
+peft) — and `notebooks/05_qlora_training.ipynb` was rewritten as a
+real Unsloth notebook (not executed; Kaggle-only). The `peft` backend
+remains ONLY for the CPU smoke (`configs/smoke_cpu.yaml`), because
+Unsloth requires CUDA; the smoke below was re-run on it after the
+restructure to prove the peft path still works. The same correction
+added `serving.UnslothBackend` (`SKILLGEN_BACKEND=unsloth`) and the
+baseline `--loader unsloth` path for the real Kaggle E0 runs. ADR:
+`docs/DECISIONS.md` #10; correction entry in `docs/FINDINGS.md`.
+Nothing Unsloth has run on a GPU yet — first real execution is the
+Kaggle run, same as E1.
 
 ## Phase 3 results (QLoRA training pipeline + CPU SMOKE)
 
@@ -247,6 +269,11 @@ this phase**; real 7B results still do not exist.
   prompt verbatim, §41 defaults (temperature 0.3, top_p 0.9,
   max_new_tokens 4096, repetition_penalty 1.1, overridable), decodes
   only new tokens, optional PEFT adapter via `SKILLGEN_ADAPTER_PATH`.
+  **Added 2026-10-23:** `UnslothBackend` — the GPU production backend
+  (FastLanguageModel 4-bit + `for_inference`, lazy, selected with
+  `SKILLGEN_BACKEND=unsloth`; on a CUDA-less machine the first
+  generate returns the typed `UnslothUnavailableError` as a clean
+  502) — see the Phase 3 correction above and DECISIONS #10.
   `create_app()` exposes `GET /health` (names the active backend) and
   `POST /generate-skill`: the §42 loop — generate → harness L1 parse →
   harness L2 schema validation (imported from
@@ -257,7 +284,8 @@ this phase**; real 7B results still do not exist.
   `200 {blueprint, validation_report{valid, attempts, errors}}`;
   exhausted retries → `422` typed `blueprint_invalid` (attempts 3,
   last_errors); backend exception → `502` typed `backend_error`;
-  input guard min 1 / max 32,000 chars → 422. Default backend: env
+  input guard min 1 / max 32,000 chars → 422. Default backend:
+  `SKILLGEN_BACKEND=unsloth` → UnslothBackend (GPU); env
   `SKILLGEN_MODEL_ID` set → TransformersBackend; otherwise a demo
   FakeBackend returning one real short train blueprint
   (`larksuite_cli__good-skill`, passes L2), and `/health` reports it

@@ -31,6 +31,7 @@ lora:
   - up_proj
   - down_proj
 training:
+  backend: unsloth  # production engine (Roger's 2026-10-23 direction); `peft` is CPU-smoke only.
   learning_rate: 0.0002
   num_train_epochs: 1
   per_device_train_batch_size: 2

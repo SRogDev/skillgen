@@ -1,56 +1,76 @@
-"""SkillGen QLoRA training entry point (PLAN.md §17/§18/§21/§27/§28).
+"""SkillGen training entry point (PLAN.md §17/§18/§21/§27/§28).
 
 Usage::
 
     uv run python -m skillgen.training.train --config configs/qlora_e1.yaml
 
+**Production engine: Unsloth** (Roger's explicit direction,
+2026-10-23). The config key ``training.backend`` selects the engine:
+
+- ``unsloth`` (E1 and every ablation config E2–E6): the model is
+  loaded and LoRA-wrapped by :mod:`skillgen.training.unsloth_backend`
+  (``FastLanguageModel.from_pretrained`` on the pre-quantized
+  ``unsloth/<model>-bnb-4bit`` checkpoint + ``get_peft_model`` with
+  ``use_gradient_checkpointing="unsloth"``), then trained with TRL's
+  ``SFTTrainer`` — the canonical Unsloth recipe. The ``peft`` backend
+  exists ONLY because Unsloth requires CUDA and the local dev VM has
+  none; it is used solely by ``configs/smoke_cpu.yaml``.
+- ``peft`` (CPU smoke only): the original plain path —
+  ``AutoModelForCausalLM`` + ``BitsAndBytesConfig`` (only when
+  ``quantization.enabled``) + a PEFT ``LoraConfig`` given to
+  ``SFTTrainer``.
+
+Import order matters: ``import unsloth`` patches transformers/trl/peft
+on import, so when the backend is ``unsloth`` this module imports
+``unsloth_backend`` BEFORE importing torch/transformers/trl (all heavy
+imports are therefore local to :func:`run`).
+
 What this does, in order:
 
 1. Loads the YAML config (``skillgen.training.config``).
-2. Loads the tokenizer and builds the PRE-TOKENIZED train/val datasets
-   with :mod:`skillgen.training.prepare` — the labels (assistant-only
+2. Loads the model + tokenizer through the selected backend.
+3. Builds the PRE-TOKENIZED train/val datasets with
+   :mod:`skillgen.training.prepare` — the labels (assistant-only
    masking, PLAN.md §8) are built and unit-tested there, never inside
-   the trainer.
-3. **§21 masking gate:** verifies the first training example with
+   the trainer, and reach ``SFTTrainer`` untouched on both backends.
+4. **§21 masking gate:** verifies the first training example with
    ``prepare.verify_masking`` and PRINTS the decoded unmasked text.
    Training refuses to start if verification fails — a broken chat
    template can mask everything in silence and produce loss 0.0 with
    zero learning.
-4. Loads the base model (4-bit NF4 + double quant via
-   ``BitsAndBytesConfig`` ONLY when ``quantization.enabled`` — on the
-   CPU smoke config it is disabled and plain LoRA is used) and trains
-   with TRL's ``SFTTrainer`` + a PEFT ``LoraConfig``.
-5. Saves the adapter + tokenizer to the config's ``output_dir`` and
-   prints the final train/eval losses. Best checkpoint is selected by
-   val loss (``load_best_model_at_end``), with early stopping.
+5. Trains with ``SFTTrainer``; saves the adapter + tokenizer to the
+   config's ``output_dir``. Best checkpoint is selected by val loss
+   (``load_best_model_at_end``), with early stopping.
 
 Why ``bitsandbytes`` and ``unsloth`` are NOT project dependencies
 (``pyproject.toml``): bitsandbytes ships CUDA kernels — it cannot even
 import on this CPU-only VM — and Unsloth pins its own torch/xformers
 stack, which would fight the CPU-torch pin used for local development.
 Both are installed **in the Kaggle notebook cells** instead
-(``notebooks/05_qlora_training.ipynb``), where the CUDA torch they expect
-already exists. The E1 config's ``optim: adamw_8bit`` and
-``gradient_checkpointing: "unsloth"`` likewise only take effect there;
-here ``"unsloth"`` degrades to standard gradient checkpointing with
-``use_reentrant=False`` (the setting Unsloth itself recommends).
+(``notebooks/05_qlora_training.ipynb``), where the CUDA torch they
+expect already exists.
 
 TRL API note (installed trl 1.16.0, inspected before writing this):
 ``SFTTrainer._prepare_dataset`` treats a dataset with an ``input_ids``
 column as pre-processed and skips its own tokenization, and a dataset
 that already provides ``labels`` is left as is; the default
-``DataCollatorForLanguageModeling`` pads our labels with -100 and uses
-them unchanged. We set ``max_length`` on ``SFTConfig`` to the config's
-``max_seq_length`` (already enforced by prepare.py's filter, so TRL's
-truncation step is a no-op safeguard) and ``packing=False`` (§23). No
-trainer-internal masking (``assistant_only_loss`` /
+``DataCollatorForLanguageModeling`` pads our labels with -100 and
+uses them unchanged. We set ``max_length`` on ``SFTConfig`` to the
+config's ``max_seq_length`` (already enforced by prepare.py's filter,
+so TRL's truncation step is a no-op safeguard) and ``packing=False``
+(§23). No trainer-internal masking (``assistant_only_loss`` /
 ``completion_only_loss``) is enabled: the labels come from prepare.py.
-One more API adaptation: the installed transformers (5.x, pulled in by
-trl 1.16) removed ``TrainingArguments.warmup_ratio``; ``warmup_steps``
-now accepts a float in [0, 1) meaning "ratio of total steps", so the
-config's ``warmup_ratio: 0.03`` is passed as ``warmup_steps=0.03`` —
-same semantics, new spelling. And TRL 1.16's ``SFTConfig`` enables
-bf16 by default, which transformers 5.x rejects on a CPU-only setup, so
+On the Unsloth backend the model arrives with LoRA already applied by
+``get_peft_model``, so no ``peft_config`` is passed to the trainer,
+and gradient checkpointing is NOT enabled in ``SFTConfig`` either —
+``get_peft_model(..., use_gradient_checkpointing="unsloth")`` already
+turned on Unsloth's own checkpointing. One more API adaptation: the
+installed transformers (5.x, pulled in by trl 1.16) removed
+``TrainingArguments.warmup_ratio``; ``warmup_steps`` now accepts a
+float in [0, 1) meaning "ratio of total steps", so the config's
+``warmup_ratio: 0.03`` is passed as ``warmup_steps=0.03`` — same
+semantics, new spelling. And TRL 1.16's ``SFTConfig`` enables bf16 by
+default, which transformers 5.x rejects on a CPU-only setup, so
 ``bf16``/``fp16`` are pinned explicitly from the config + hardware.
 
 Experiment tracking (§28): ``report_to=["wandb"]`` ONLY when the
@@ -65,31 +85,41 @@ import os
 import random
 from pathlib import Path
 
-import torch
-from peft import LoraConfig
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    BitsAndBytesConfig,
-    EarlyStoppingCallback,
-    set_seed,
-)
-from trl import SFTConfig, SFTTrainer
-
 from skillgen.training.config import load_config
 from skillgen.training.prepare import load_training_dataset, verify_masking
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
-def _torch_dtype(name: str) -> torch.dtype:
+def _torch_dtype(name: str):
+    import torch
+
     return {"fp16": torch.float16, "bf16": torch.bfloat16, "fp32": torch.float32}[name]
 
 
 def run(config_path: str | Path) -> dict:
     config = load_config(config_path)
     training_cfg = config["training"]
+    backend = str(training_cfg.get("backend", "unsloth")).lower()
+    if backend not in {"unsloth", "peft"}:
+        raise ValueError(
+            f"training.backend must be 'unsloth' or 'peft', got {backend!r}"
+        )
     seed = int(training_cfg.get("seed", 42))
+
+    # --- Backend first: Unsloth MUST be imported before transformers /
+    # trl / peft in this process (it patches them on import). Its typed
+    # guard also fails fast, before any heavy loading, when unsloth or
+    # CUDA is unavailable.
+    unsloth_backend = None
+    if backend == "unsloth":
+        from skillgen.training import unsloth_backend as _ub
+
+        _ub.require_unsloth()
+        unsloth_backend = _ub
+
+    import torch
+    from transformers import EarlyStoppingCallback, set_seed
 
     # Seed everywhere (§46).
     random.seed(seed)
@@ -97,7 +127,15 @@ def run(config_path: str | Path) -> dict:
     torch.manual_seed(seed)
 
     model_name = config["model"]["name"]
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+    # --- Model + tokenizer through the selected backend ---
+    model = None
+    if backend == "unsloth":
+        model, tokenizer = unsloth_backend.load_unsloth_model(config)
+    else:
+        from transformers import AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -121,39 +159,50 @@ def run(config_path: str | Path) -> dict:
         print("[gate] train_on_assistant_only=false (E2 ablation): "
               "labels are a copy of input_ids; masking gate skipped by design.")
 
-    # --- Model ---
+    # --- Model (peft backend loads it here; unsloth already loaded it) ---
     quant_cfg = config.get("quantization", {})
-    model_kwargs: dict = {}
-    if quant_cfg.get("enabled"):
-        model_kwargs["quantization_config"] = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type=quant_cfg.get("quant_type", "nf4"),
-            bnb_4bit_use_double_quant=bool(quant_cfg.get("double_quant", True)),
-            bnb_4bit_compute_dtype=_torch_dtype(quant_cfg.get("compute_dtype", "fp16")),
-        )
-        model_kwargs["torch_dtype"] = _torch_dtype(quant_cfg.get("compute_dtype", "fp16"))
-    model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
-    model.config.use_cache = False  # incompatible with gradient checkpointing
+    peft_config = None
+    if backend == "peft":
+        from peft import LoraConfig
+        from transformers import AutoModelForCausalLM, BitsAndBytesConfig
 
-    # --- LoRA ---
-    lora_cfg = config["lora"]
-    peft_config = LoraConfig(
-        r=int(lora_cfg["r"]),
-        lora_alpha=int(lora_cfg["alpha"]),
-        lora_dropout=float(lora_cfg["dropout"]),
-        bias=lora_cfg.get("bias", "none"),
-        target_modules=list(lora_cfg["target_modules"]),
-        task_type="CAUSAL_LM",
-    )
+        model_kwargs: dict = {}
+        if quant_cfg.get("enabled"):
+            model_kwargs["quantization_config"] = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type=quant_cfg.get("quant_type", "nf4"),
+                bnb_4bit_use_double_quant=bool(quant_cfg.get("double_quant", True)),
+                bnb_4bit_compute_dtype=_torch_dtype(quant_cfg.get("compute_dtype", "fp16")),
+            )
+            model_kwargs["torch_dtype"] = _torch_dtype(quant_cfg.get("compute_dtype", "fp16"))
+        model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+
+        # --- LoRA (peft backend only; unsloth applied it in get_peft_model) ---
+        lora_cfg = config["lora"]
+        peft_config = LoraConfig(
+            r=int(lora_cfg["r"]),
+            lora_alpha=int(lora_cfg["alpha"]),
+            lora_dropout=float(lora_cfg["dropout"]),
+            bias=lora_cfg.get("bias", "none"),
+            target_modules=list(lora_cfg["target_modules"]),
+            task_type="CAUSAL_LM",
+        )
+    model.config.use_cache = False  # incompatible with gradient checkpointing
 
     # --- Trainer ---
     gc_setting = training_cfg.get("gradient_checkpointing", False)
-    gradient_checkpointing = bool(gc_setting)
-    gc_kwargs = (
-        {"use_reentrant": False} if gradient_checkpointing else None
-    )
+    if backend == "unsloth":
+        # Unsloth's own checkpointing was enabled by get_peft_model;
+        # enabling Trainer's as well would fight it.
+        gradient_checkpointing = False
+        gc_kwargs = None
+    else:
+        gradient_checkpointing = bool(gc_setting)
+        gc_kwargs = {"use_reentrant": False} if gradient_checkpointing else None
     output_dir = str(REPO_ROOT / config["output_dir"])
     report_to = ["wandb"] if os.environ.get("WANDB_API_KEY") else []
+
+    from trl import SFTConfig, SFTTrainer
 
     sft_config = SFTConfig(
         output_dir=output_dir,
@@ -206,14 +255,17 @@ def run(config_path: str | Path) -> dict:
             EarlyStoppingCallback(early_stopping_patience=int(patience))
         )
 
+    trainer_kwargs: dict = {}
+    if peft_config is not None:
+        trainer_kwargs["peft_config"] = peft_config
     trainer = SFTTrainer(
         model=model,
         args=sft_config,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
         processing_class=tokenizer,
-        peft_config=peft_config,
         callbacks=callbacks,
+        **trainer_kwargs,
     )
 
     train_result = trainer.train()
@@ -222,6 +274,7 @@ def run(config_path: str | Path) -> dict:
     trainer.save_model(output_dir)
     tokenizer.save_pretrained(output_dir)
 
+    print(f"[done] backend: {backend}")
     print(f"[done] train loss: {train_result.training_loss}")
     print(f"[done] eval loss: {eval_result.get('eval_loss')}")
     print(f"[done] adapter + tokenizer saved to {output_dir}")
@@ -230,6 +283,7 @@ def run(config_path: str | Path) -> dict:
         "eval_loss": eval_result.get("eval_loss"),
         "stats": stats,
         "output_dir": output_dir,
+        "backend": backend,
     }
 
 

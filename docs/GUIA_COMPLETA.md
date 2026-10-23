@@ -129,6 +129,13 @@ esquema* — la invención de esquema es el fallo dominante, y eso es
 exactamente lo que el fine-tuning debe corregir. Cuando E1 corra, la
 comparación pareada contra E0 dirá si lo corrigió o no.
 
+**Loader en Kaggle (2026-10-23).** Las corridas reales E0a/E0b
+también van por Unsloth — "Unsloth para todo" el trabajo GPU —:
+`scripts/run_baseline.py --loader unsloth` carga el base con
+`FastLanguageModel` en 4-bit (`unsloth/Qwen2.5-7B-Instruct-bnb-4bit`)
+y genera con `for_inference`. En local el loader por defecto sigue
+siendo `transformers` en CPU, que es lo que el smoke de arriba usó.
+
 **Preguntas de entrevista:**
 - *"¿Y si el few-shot ya resuelve el formato?"* → Esa es la hipótesis
   de E0b, y por eso existe: si few-shot iguala al fine-tune, el
@@ -141,19 +148,74 @@ comparación pareada contra E0 dirá si lo corrigió o no.
 
 ---
 
-## Fase 3 — Entrenamiento QLoRA: el código y sus puertas de calidad
+## Fase 3 — Entrenamiento QLoRA con Unsloth: el código y sus puertas de calidad
 
-**Qué se hizo.** `src/skillgen/training/prepare.py` (renderiza con el
-chat template nativo y construye labels assistant-only),
-`train.py` (TRL `SFTTrainer`, dirigido por YAML), `config.py`, y
-`configs/`: E1 (§18 exacto: r16/α32, NF4 + doble cuantización, lr
-2e-4, 2 epochs, batch efectivo 16, warmup 3%, cosine, adamw_8bit,
-seed 42) más **una variante por ablación** (E2 sin masking, E3
-epochs 1/3, E4 rango 8/32, E5 solo atención, E6 datos 250/500) — un
-test garantiza que cada config difiere de E1 *solo* en su variable.
-`notebooks/05_qlora_training.ipynb` es el notebook de producción para
-Kaggle (instala unsloth en la celda; no es dependencia local porque
-fija su propia pila de torch y bitsandbytes necesita CUDA).
+**Corrección importante (2026-10-23).** La primera versión de esta
+fase entrenaba con transformers+PEFT+TRL planos, y el notebook 05
+instalaba unsloth en una celda **sin importarlo jamás**. Eso violaba
+la dirección de Roger — hacer este trabajo, y aprenderlo, **a través
+de Unsloth** — y se corrigió: desde el 2026-10-23 Unsloth es el motor
+de TODO el trabajo GPU del proyecto (entrenamiento, export, serving
+real y baselines de Kaggle; ADR #10 en `docs/DECISIONS.md`). Esta
+sección enseña esa API, que es la que vas a defender.
+
+**La superficie de Unsloth que usa SkillGen (aprende estos 5 nombres):**
+
+1. `FastLanguageModel.from_pretrained(model_name, max_seq_length,
+   dtype=None, load_in_4bit=True)` — carga el base ya cuantizado a
+   4-bit NF4 desde el checkpoint `unsloth/Qwen2.5-7B-Instruct-bnb-4bit`.
+   `dtype=None` = automático (fp16 en la T4).
+2. `FastLanguageModel.get_peft_model(model, r, lora_alpha,
+   lora_dropout, bias, target_modules,
+   use_gradient_checkpointing="unsloth", random_state)` — adjunta
+   LoRA y activa **el checkpointing propio de Unsloth** (~30% menos
+   VRAM). Después, `model.print_trainable_parameters()` te dice qué
+   entrenas: ≈40,4M parámetros (~0,5%).
+3. `FastLanguageModel.for_inference(model)` — modo de inferencia
+   rápida tras entrenar (lo usa el control de calidad del notebook y
+   el backend real de serving).
+4. `model.save_pretrained(...)` / `save_pretrained_gguf(dir,
+   tokenizer, quantization_method="q4_k_m")` — guardar el adaptador
+   y exportar GGUF (Fase 5, §44).
+5. **La regla del import:** `import unsloth` va **antes** que
+   transformers/trl/peft, porque al importarse los *parchea*
+   (kernels de atención, checkpointing, internos del Trainer).
+   Importarlo después pierde los parches en silencio.
+
+**Qué se hizo.** `src/skillgen/training/unsloth_backend.py` envuelve
+esa API: `load_unsloth_model(config)` lee TODOS los valores del YAML
+(modelo, seq length, r/α/targets, seed — nada hardcodeado) y
+`require_unsloth()` falla con un error tipado y accionable
+(`UnslothUnavailableError`) si falta unsloth o CUDA, nunca con un
+traceback crudo. `train.py` elige motor con la clave
+`training.backend`: **`unsloth`** en E1 y todas las ablaciones E2–E6;
+**`peft`** (el camino plano original) SOLO en `configs/smoke_cpu.yaml`,
+porque Unsloth exige CUDA y la VM local no tiene GPU. El entrenamiento
+corre con TRL `SFTTrainer` — que ES la receta canónica de Unsloth:
+Unsloth pone el modelo optimizado, TRL pone el loop — alimentado con
+el dataset pre-tokenizado de `prepare.py`, así que nuestros labels
+certificados llegan intactos. `src/skillgen/training/prepare.py`
+(renderiza con el chat template nativo y construye labels
+assistant-only), `config.py`, y `configs/`: E1 (§18 exacto: r16/α32,
+NF4 + doble cuantización, lr 2e-4, 2 epochs, batch efectivo 16,
+warmup 3%, cosine, adamw_8bit, seed 42) más **una variante por
+ablación** (E2 sin masking, E3 epochs 1/3, E4 rango 8/32, E5 solo
+atención, E6 datos 250/500) — un test garantiza que cada config
+difiere de E1 *solo* en su variable. `notebooks/05_qlora_training.ipynb`
+es el notebook de producción para Kaggle: un recorrido celda a celda
+por la API de arriba (instalar → importar primero → asserts de
+entorno → `from_pretrained` → `get_peft_model` → gate de masking →
+`SFTTrainer` → guardar → `for_inference` → GGUF). No es dependencia
+local porque unsloth fija su propia pila de torch y bitsandbytes
+necesita CUDA; el notebook NO está ejecutado (es solo-Kaggle y él
+mismo lo declara).
+
+**¿Y `train_on_responses_only`?** Es la utilidad de Unsloth para el
+masking assistant-only, y sería lo "normal" en un tutorial. No la
+usamos: nuestro masking se construye en `prepare.py` y está
+**certificado por tests** que decodifican los labels. Cambiar una
+garantía probada por una comodidad es mal negocio; si algún día se
+migra, tendrá que pasar por la misma verificación.
 
 **La puerta que importa (PLAN §21):** antes de entrenar, el código
 decodifica los labels ≠ -100 del primer ejemplo e imprime el texto:
@@ -163,9 +225,14 @@ más. Un template mal aplicado enmascara todo en silencio y obtienes
 entre "corrió" y "entrenó".
 
 **SMOKE (no es E1):** 0.5B con LoRA plano r8 (sin cuantización: no
-hay GPU), 20 registros filtrados, 10 pasos en CPU: train loss
+hay GPU), 20 registros filtrados, 10 pasos en CPU, **backend `peft`**
+(el único que puede correr sin CUDA): train loss
 **2,4453 → 1,8009**. Prueba la tubería (filtrado, masking, TRL,
-guardado del adaptador); no dice nada de la calidad del 7B.
+guardado del adaptador); no dice nada de la calidad del 7B ni de
+Unsloth — nada de Unsloth ha corrido en GPU todavía. La integración
+de Unsloth está probada a nivel de cableado: tests con un módulo
+`unsloth` falso inyectado que graba las llamadas y verifica que
+salen de la config.
 
 **Hallazgo de ingeniero, no de tutorial:** se verificó *inspeccionando
 TRL 1.16* que `SFTTrainer` acepta una columna `labels` propia sin
@@ -181,6 +248,16 @@ jamás se delega al comportamiento interno de una librería.
   del primer ejemplo antes de entrenar y lo muestro: solo el turno
   del asistente. Está en el código como puerta obligatoria, no como
   comprobación manual ocasional.
+- *"¿Qué aporta Unsloth si ya usas SFTTrainer?"* → El modelo:
+  carga 4-bit desde su checkpoint pre-cuantizado, kernels de
+  atención parcheados y su checkpointing de gradiente (~30% menos
+  VRAM, ~2× velocidad en la práctica). SFTTrainer es el loop que la
+  propia receta de Unsloth prescribe; Unsloth no es un framework
+  rival de TRL, es el motor del modelo debajo de TRL.
+- *"¿Por qué importa el orden de los imports?"* → Porque unsloth
+  parchea transformers/trl/peft al importarse. Importarlo después
+  no da error: simplemente entrenas sin los parches, más lento y con
+  más memoria, sin enterarte.
 
 ---
 
@@ -208,9 +285,19 @@ jamás se delega al comportamiento interno de una librería.
 
 **Por qué el loop de reparación.** La Fase 2 demostró que el modelo base genera JSON coherente pero inventa el esquema. En producción no puedes devolver eso: el loop generate → validar → reparar convierte un fallo silencioso en un rechazo tipado. Es la diferencia entre "a veces sale mal" y "sale bien o te dice por qué no".
 
+**Serving en GPU (2026-10-23).** Además del fake y del backend
+transformers, serving tiene `UnslothBackend` — el backend real en un
+host con GPU —: se selecciona con `SKILLGEN_BACKEND=unsloth`, carga
+con `FastLanguageModel` en 4-bit y genera tras
+`FastLanguageModel.for_inference`. `/health` lo nombra
+(`unsloth:<modelo>`). En una máquina sin CUDA, seleccionarlo no
+rompe nada al arrancar (la carga es perezosa): el primer request
+recibe el 502 tipado con `UnslothUnavailableError`. La demo local
+sigue siendo el fake, y se sigue declarando como fake.
+
 **Export.** `scripts/export_model.py` implementa el §44 como plan ordenado explícito: cargar base+adaptador → **merge en 16-bit (`merged_16bit`)** → **GGUF `q4_k_m` desde el modelo mergeado** → instrucciones de `ollama create`. Regla dura testeada: **nunca merge directo a 4-bit** (cuantizar el adaptador antes de fusionarlo degrada los pesos que acabas de entrenar). Sin GPU + unsloth, `--dry-run` imprime el plan y los comandos exactos y sale 0; sin `--dry-run` sale 2 con mensaje claro. En esta fase no se exportó nada: no hay adaptador real todavía.
 
-**Honestidad documentada.** `MODEL_CARD.md` (raíz): base PROVISIONAL, **no entrenado a 7B, sin pesos publicados, los resultados reales del 7B no existen** — la única evidencia son los números SMOKE/0.5B etiquetados. `docs/FINDINGS.md` (hallazgos acumulados Fases 0–5) y `docs/DECISIONS.md` (9 ADRs). 8 tests de serving (RED → GREEN: el RED fue `ModuleNotFoundError`), 6 de export. Suite: **86/86 pytest en verde**.
+**Honestidad documentada.** `MODEL_CARD.md` (raíz): base PROVISIONAL, **no entrenado a 7B, sin pesos publicados, los resultados reales del 7B no existen** — la única evidencia son los números SMOKE/0.5B etiquetados. `docs/FINDINGS.md` (hallazgos acumulados Fases 0–5) y `docs/DECISIONS.md` (10 ADRs; el #10 registra la corrección Unsloth del 2026-10-23). 8 tests de serving (RED → GREEN: el RED fue `ModuleNotFoundError`), 6 de export. Suite: **86/86 pytest en verde** tras la Fase 5 original; la corrección Unsloth añadió sus propios tests (backend con stub, configs, selección de serving y de loader).
 
 **Preguntas de entrevista:**
 - *"¿Por qué no cargas el modelo al arrancar la API?"* → Porque entonces cada test, cada import y cada despliegue necesitaría la GPU y los pesos. Carga perezosa: el proceso arranca barato y el primer request paga el costo — y `/health` te dice qué backend está vivo.
@@ -222,10 +309,10 @@ jamás se delega al comportamiento interno de una librería.
 
 Cuando pases la key, la secuencia es esta — cada puerta bloquea la siguiente:
 
-1. **Entorno** (`notebooks/05_qlora_training.ipynb`): instala unsloth + bitsandbytes en la celda, asserts de GPU (T4) y CUDA disponible. Sin GPU no hay corrida: la puerta es el assert, no tu palabra.
+1. **Entorno y Unsloth** (`notebooks/05_qlora_training.ipynb`): instala unsloth en la celda, **`import unsloth` PRIMERO** (antes que transformers/trl — parchea las librerías al importarse), asserts de GPU (T4, compute capability ≥ 7.0) y CUDA disponible. Después carga el modelo con `FastLanguageModel.from_pretrained` (checkpoint `unsloth/...-bnb-4bit`, `load_in_4bit=True`) y adjunta LoRA con `get_peft_model` (`use_gradient_checkpointing="unsloth"`; verifica ≈40,4M de parámetros entrenables en `print_trainable_parameters()`). Sin GPU no hay corrida: la puerta es el assert, no tu palabra.
 2. **Modelo base**: sigue **PROVISIONAL**. Antes de congelarlo hay que verificar los candidatos 2026 — Mistral Large 4 publica pesos el 27 de octubre con licencia custom (aviso programado el 2 de noviembre). Si la licencia lo permite, se compara antes de congelar; si no, Qwen2.5-7B queda congelado por decisión documentada en `docs/DECISIONS.md`.
 3. **Masking**: el código decodifica los labels ≠ -100 del primer ejemplo e imprime el texto — debe ser **exactamente el blueprint + `<|im_end|>`**. Si sale otra cosa, no entrenas: paras y depuras el template.
-4. **E0 antes que E1**: corre el baseline del 7B (zero-shot y few-shot) sobre val/test completos con el harness. Sin baseline, el fine-tune es indefendible: es el número contra el que se mide todo.
+4. **E0 antes que E1**: corre el baseline del 7B (zero-shot y few-shot) sobre val/test completos con el harness, cargando el modelo por Unsloth (`run_baseline.py --loader unsloth`). Sin baseline, el fine-tune es indefendible: es el número contra el que se mide todo.
 5. **E1**: QLoRA con `configs/qlora_e1.yaml` (~73 pasos sobre los 582 registros). Loss de entrenamiento sana orientativa: **0,5–1,0**. Guarda el adaptador.
 6. **Comparación pareada** (`src/skillgen/evaluation/compare.py`): E0 vs E1 sobre el test. Lee primero los conteos pareados y McNemar, después el Score. **Puerta §39**: se promueve solo si SkillGen Score ≥ actual + 2 puntos **y** sin regresión en el expert set.
 7. **Ablaciones** E2–E6 (una variable por experimento, garantizado por test) — solo si E1 pasa la puerta; si no, el análisis de fallos manda.

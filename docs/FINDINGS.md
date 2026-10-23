@@ -150,6 +150,41 @@ Source: `src/skillgen/serving/`, `scripts/export_model.py`,
   no-direct-4-bit-merge rule. Execution needs GPU + unsloth, so on
   this VM it is dry-run only, by design.
 
+## Correction (2026-10-23) — Unsloth is now the actual engine
+
+Roger's direction is Unsloth for this work — confirmed and extended
+the same day as **"Unsloth para todo"** (all GPU work). The build
+above had deviated: Phase 3's `train.py` trained with plain
+transformers+PEFT+TRL, and `notebooks/05_qlora_training.ipynb`
+installed unsloth in a cell but **never imported it**; only
+`scripts/export_model.py` used `FastLanguageModel` for real. Fixed
+2026-10-23 (see `docs/DECISIONS.md` #10):
+
+- `src/skillgen/training/unsloth_backend.py`: `load_unsloth_model`
+  (FastLanguageModel 4-bit load + `get_peft_model` with
+  `use_gradient_checkpointing="unsloth"`, all values from the YAML
+  config), `enable_inference`, `save_gguf`, and the typed
+  `UnslothUnavailableError` guard. `train.py` selects the backend
+  via `training.backend` (`unsloth` in E1 + E2–E6 configs; `peft`
+  ONLY in `smoke_cpu.yaml`) and imports the Unsloth path before
+  transformers/trl/peft. Training still runs through SFTTrainer on
+  prepare.py's certified labels — the canonical Unsloth recipe.
+- Notebook 05 rewritten as a real Unsloth notebook (install →
+  import-first → env asserts → from_pretrained → get_peft_model →
+  masking gate → SFTTrainer → save → for_inference → GGUF). It is
+  **not executed** — Kaggle-only, and it says so in its first cell.
+- Serving gained `UnslothBackend` (`SKILLGEN_BACKEND=unsloth`), and
+  the baseline pipeline gained `--loader unsloth` so the real E0a/E0b
+  runs on Kaggle also load through FastLanguageModel (4-bit).
+- Evidence here is wiring-level only: new tests drive
+  `unsloth_backend` through a stub `unsloth` module injected into
+  `sys.modules` (call arguments asserted against the config), test
+  the serving selection/unavailable paths and the baseline loader
+  selection, and the CPU smoke was re-run on the retained `peft`
+  backend to prove the restructure did not break it. **No Unsloth
+  code has run on a GPU yet** — the first real execution is the
+  Kaggle run, exactly like E1 itself.
+
 ## Pending the Kaggle GPU run
 
 Nothing below has run; there are no numbers for any of it yet.
