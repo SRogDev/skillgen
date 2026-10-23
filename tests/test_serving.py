@@ -121,3 +121,54 @@ def test_valid_blueprint_fixture_actually_validates():
     assert ok
     assert module.l2_validate_schema(obj) == []
     assert json.loads(VALID_BLUEPRINT)["name"] == "good-skill"
+
+
+# ---------------------------------------------------------------------------
+# UnslothBackend (Roger's 2026-10-23 "Unsloth para todo" direction)
+#
+# GPU-only and lazy. On this CPU VM unsloth is not installed, so selecting
+# it must surface the typed UnslothUnavailableError as a clean 502 — never
+# a crash traceback — and /health must name it honestly.
+# ---------------------------------------------------------------------------
+
+
+def test_default_backend_selection_unsloth_via_env(monkeypatch):
+    from skillgen.serving.app import UnslothBackend, _default_backend
+
+    monkeypatch.setenv("SKILLGEN_BACKEND", "unsloth")
+    monkeypatch.setenv("SKILLGEN_MODEL_ID", "unsloth/Qwen2.5-7B-Instruct-bnb-4bit")
+    backend = _default_backend()  # construction must NOT load anything
+    assert isinstance(backend, UnslothBackend)
+    assert backend.name.startswith("unsloth:")
+
+
+def test_default_backend_selection_transformers_via_env(monkeypatch):
+    from skillgen.serving.app import TransformersBackend, _default_backend
+
+    monkeypatch.setenv("SKILLGEN_BACKEND", "transformers")
+    monkeypatch.setenv("SKILLGEN_MODEL_ID", "Qwen/Qwen2.5-0.5B-Instruct")
+    backend = _default_backend()
+    assert isinstance(backend, TransformersBackend)
+
+
+def test_unsloth_backend_health_names_it():
+    from skillgen.serving.app import UnslothBackend
+
+    backend = UnslothBackend("unsloth/Qwen2.5-7B-Instruct-bnb-4bit")
+    client = TestClient(create_app(backend), raise_server_exceptions=False)
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    assert resp.json()["backend"].startswith("unsloth:")
+
+
+def test_unsloth_backend_unavailable_is_typed_502():
+    from skillgen.serving.app import UnslothBackend
+
+    backend = UnslothBackend("unsloth/Qwen2.5-7B-Instruct-bnb-4bit")
+    client = TestClient(create_app(backend), raise_server_exceptions=False)
+    resp = client.post("/generate-skill", json={"input": "make me a skill"})
+    assert resp.status_code == 502
+    error = resp.json()["error"]
+    assert error["code"] == "backend_error"
+    # The typed error from the unsloth backend module, not a raw traceback.
+    assert "UnslothUnavailableError" in error["message"]

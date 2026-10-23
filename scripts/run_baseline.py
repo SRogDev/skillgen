@@ -40,6 +40,7 @@ from skillgen.evaluation.baseline import (  # noqa: E402
     REAL_E0_MODEL_ID,
     generate_predictions,
     load_split_records,
+    resolve_loader,
     score_predictions,
 )
 
@@ -63,6 +64,7 @@ def write_run_readme(
     temperature: float,
     scores: dict,
     elapsed_seconds: float,
+    loader: str = "transformers",
 ) -> bool:
     smoke = is_smoke(model_id, limit, full_split_size)
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -102,7 +104,12 @@ def write_run_readme(
         f"- Max new tokens: {max_new_tokens}",
         f"- Temperature: {temperature} (0 = greedy)",
         f"- Wall time (generation + scoring): {elapsed_seconds:.1f} s",
-        "- Device: CPU (local run)",
+        f"- Loader: `{loader}`"
+        + (
+            " (Unsloth FastLanguageModel, 4-bit — GPU run)"
+            if loader == "unsloth"
+            else " (plain transformers — CPU/local run)"
+        ),
         "",
         "## Scores (scripts/eval_harness.py, reused — not reimplemented)",
         "",
@@ -137,8 +144,16 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--max-new-tokens", type=int, default=1024)
     ap.add_argument("--temperature", type=float, default=0.0)
+    ap.add_argument(
+        "--loader",
+        choices=["transformers", "unsloth"],
+        default=None,
+        help="model loader (default: SKILLGEN_BASELINE_LOADER env or "
+        "transformers; unsloth = Kaggle GPU path for the real E0 runs)",
+    )
     ap.add_argument("--out-dir", default="experiments/e0_baseline")
     args = ap.parse_args()
+    loader = resolve_loader(args.loader)
 
     out_dir = Path(args.out_dir)
     if not out_dir.is_absolute():
@@ -156,6 +171,7 @@ def main() -> None:
         limit=args.limit,
         max_new_tokens=args.max_new_tokens,
         temperature=args.temperature,
+        loader=loader,
     )
     scores = score_predictions(predictions, records)
     elapsed = time.time() - start
@@ -177,10 +193,12 @@ def main() -> None:
         temperature=args.temperature,
         scores=scores,
         elapsed_seconds=elapsed,
+        loader=loader,
     )
 
     summary = {k: v for k, v in scores.items() if k != "items"}
     summary["smoke"] = smoke
+    summary["loader"] = loader
     summary["out_dir"] = str(out_dir)
     summary["elapsed_seconds"] = round(elapsed, 1)
     print(json.dumps(summary, indent=1))

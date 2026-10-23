@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 from typing import Sequence
 
@@ -207,6 +208,39 @@ def build_messages(
 # Generation (heavy — not unit-tested)
 # ---------------------------------------------------------------------------
 
+#: Model loaders for generate_predictions. CPU default is plain
+#: transformers; the real E0 runs on Kaggle load through Unsloth
+#: (Roger's 2026-10-23 direction: Unsloth for all GPU work).
+LOADERS = ("transformers", "unsloth")
+
+
+def resolve_loader(loader: str | None = None) -> str:
+    """Resolve the model loader: explicit arg > env > "transformers".
+
+    The environment override is ``SKILLGEN_BASELINE_LOADER``. Unknown
+    values raise ``ValueError`` — a typo must never silently fall back.
+    """
+    name = (
+        loader or os.environ.get("SKILLGEN_BASELINE_LOADER") or "transformers"
+    ).strip().lower()
+    if name not in LOADERS:
+        raise ValueError(f"unknown loader: {name!r} (expected one of {LOADERS})")
+    return name
+
+
+def unsloth_model_name(model_id: str) -> str:
+    """Map a HF model id to the checkpoint FastLanguageModel should load.
+
+    The real E0 base maps to its pre-quantized Unsloth checkpoint
+    (``unsloth/Qwen2.5-7B-Instruct-bnb-4bit``, PLAN §15); ids already
+    under ``unsloth/`` and any other HF id pass through unchanged
+    (FastLanguageModel can load plain HF checkpoints too).
+    """
+    if model_id == DEFAULT_MODEL_ID:
+        return "unsloth/Qwen2.5-7B-Instruct-bnb-4bit"
+    return model_id
+
+
 def generate_predictions(
     model_id: str = DEFAULT_MODEL_ID,
     mode: str = "zero_shot",
@@ -216,17 +250,25 @@ def generate_predictions(
     temperature: float = 0.0,
     splits_dir: str | Path | None = None,
     exemplars: Sequence[dict] | None = None,
+    loader: str | None = None,
 ) -> list[dict]:
-    """Generate blueprint predictions for a split with a HF causal LM (CPU).
+    """Generate blueprint predictions for a split with a causal LM.
+
+    ``loader`` selects how the model is loaded (see
+    :func:`resolve_loader`): ``"transformers"`` (default; plain HF,
+    the CPU path) or ``"unsloth"`` (GPU/Kaggle: FastLanguageModel
+    4-bit + ``for_inference``; fails with the typed
+    ``UnslothUnavailableError`` where unsloth/CUDA is unavailable).
 
     Prompts are rendered with ``tokenizer.apply_chat_template(...,
     add_generation_prompt=True)``; only the newly generated tokens are
     decoded. Each prediction is in the exact format
     ``scripts/eval_harness.py`` expects — ``{"id", "output"}`` — plus
-    provenance fields ``model``, ``mode`` and ``split``.
+    provenance fields ``model``, ``mode``, ``split`` and ``loader``.
     """
     import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    loader_name = resolve_loader(loader)
 
     records = load_split_records(split, limit=limit, splits_dir=splits_dir)
     if mode == "few_shot":
@@ -240,15 +282,37 @@ def generate_predictions(
     elif mode != "zero_shot":
         raise ValueError(f"unknown mode: {mode!r} (expected zero_shot/few_shot)")
 
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    if loader_name == "unsloth":
+        # Import order: the backend module imports unsloth (patching
+        # transformers) before anything from transformers is touched.
+        from skillgen.training.unsloth_backend import (
+            enable_inference,
+            require_unsloth,
+        )
+
+        require_unsloth()
+        from unsloth import FastLanguageModel
+
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=unsloth_model_name(model_id),
+            max_seq_length=8192,
+            dtype=None,
+            load_in_4bit=True,
+        )
+        model = enable_inference(model)
+    else:
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(model_id)
+        model = AutoModelForCausalLM.from_pretrained(model_id)
+        model.eval()
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(model_id)
-    model.eval()
 
     if temperature and temperature > 0:
         torch.manual_seed(42)
 
+    device = next(model.parameters()).device
     predictions = []
     for record in records:
         messages = build_messages(record, mode, exemplars=exemplars)
@@ -256,6 +320,7 @@ def generate_predictions(
             messages, tokenize=False, add_generation_prompt=True
         )
         inputs = tokenizer(prompt, return_tensors="pt")
+        inputs = {k: v.to(device) for k, v in inputs.items()}
         input_len = inputs["input_ids"].shape[-1]
         generate_kwargs = {
             "max_new_tokens": max_new_tokens,
@@ -276,6 +341,7 @@ def generate_predictions(
                 "model": model_id,
                 "mode": mode,
                 "split": split,
+                "loader": loader_name,
             }
         )
     return predictions

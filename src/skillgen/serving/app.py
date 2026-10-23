@@ -18,10 +18,19 @@ prompt verbatim, and the model's native chat template.
 
 v1 is local-only: no auth. Backends are pluggable behind the
 :class:`ModelBackend` protocol so tests (and the demo default) run
-with a deterministic fake — no model download. The default backend is
-the demo :class:`FakeBackend` UNLESS ``SKILLGEN_MODEL_ID`` is set, and
+with a deterministic fake — no model download. Backend selection
+(``_default_backend``): ``SKILLGEN_BACKEND=unsloth`` selects the
+GPU-only :class:`UnslothBackend` (Roger's 2026-10-23 "Unsloth para
+todo" direction: Unsloth for all GPU work — training, export, real
+serving inference, Kaggle baselines); ``SKILLGEN_BACKEND=transformers``
+or a bare ``SKILLGEN_MODEL_ID`` selects :class:`TransformersBackend`;
+otherwise the demo :class:`FakeBackend` is the default, and
 ``GET /health`` always names the active backend so nobody mistakes
-the demo for the real (not yet trained at 7B) model.
+the demo for the real (not yet trained at 7B) model. Selecting the
+Unsloth backend on a machine without CUDA/unsloth fails at first
+generation with the typed ``UnslothUnavailableError`` from
+``skillgen.training.unsloth_backend``, surfaced as the endpoint's
+typed 502 — never a crash traceback.
 """
 
 from __future__ import annotations
@@ -41,6 +50,7 @@ __all__ = [
     "ModelBackend",
     "FakeBackend",
     "TransformersBackend",
+    "UnslothBackend",
     "build_repair_text",
     "create_app",
     "app",
@@ -176,6 +186,85 @@ class TransformersBackend:
         return self._tokenizer.decode(new_ids, skip_special_tokens=True)
 
 
+class UnslothBackend:
+    """Real backend on GPU: Unsloth ``FastLanguageModel`` + fast inference.
+
+    The production serving path on a GPU host (Roger's 2026-10-23
+    direction: Unsloth for all GPU work). Lazy like
+    :class:`TransformersBackend`: nothing loads at import or app
+    creation; the first ``generate()`` loads the 4-bit model through
+    ``skillgen.training.unsloth_backend`` and switches it to inference
+    mode with ``FastLanguageModel.for_inference``. If ``adapter_path``
+    is set it is loaded directly (an Unsloth-saved adapter directory
+    loads through ``from_pretrained`` and brings its base with it).
+
+    On a machine without unsloth or CUDA, the first ``generate()``
+    raises the typed ``UnslothUnavailableError`` — the endpoint turns
+    it into a clean 502, never a traceback.
+    """
+
+    def __init__(
+        self,
+        model_id: str,
+        adapter_path: str | None = None,
+        max_seq_length: int = 8192,
+        **generation_overrides,
+    ):
+        self.model_id = model_id
+        self.adapter_path = adapter_path
+        self.max_seq_length = max_seq_length
+        self.generation = {**DEFAULT_GENERATION, **generation_overrides}
+        self.name = f"unsloth:{model_id}"
+        if adapter_path:
+            self.name += f"+adapter:{adapter_path}"
+        self._model = None
+        self._tokenizer = None
+
+    def _load(self):
+        if self._model is not None:
+            return
+        # Imported here (not at module level) to keep loading lazy —
+        # and because `import unsloth` must precede transformers
+        # imports in the process (unsloth_backend handles the guard).
+        from skillgen.training.unsloth_backend import (
+            enable_inference,
+            require_unsloth,
+        )
+
+        require_unsloth()
+        from unsloth import FastLanguageModel
+
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=self.adapter_path or self.model_id,
+            max_seq_length=self.max_seq_length,
+            dtype=None,  # auto: fp16 on T4-class GPUs
+            load_in_4bit=True,
+        )
+        self._model = enable_inference(model)
+        self._tokenizer = tokenizer
+
+    def generate(self, user_text: str) -> str:
+        import torch
+
+        self._load()
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_text},
+        ]
+        prompt = self._tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        inputs = self._tokenizer(prompt, return_tensors="pt")
+        device = next(self._model.parameters()).device
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+        input_len = inputs["input_ids"].shape[1]
+        with torch.no_grad():
+            output_ids = self._model.generate(**inputs, **self.generation)
+        # Decode ONLY the newly generated tokens.
+        new_ids = output_ids[0][input_len:]
+        return self._tokenizer.decode(new_ids, skip_special_tokens=True)
+
+
 # ---------------------------------------------------------------------------
 # Repair prompt (§42)
 # ---------------------------------------------------------------------------
@@ -212,10 +301,19 @@ class GenerateRequest(BaseModel):
 
 
 def _default_backend() -> ModelBackend:
+    backend_kind = os.environ.get("SKILLGEN_BACKEND", "").strip().lower()
     model_id = os.environ.get("SKILLGEN_MODEL_ID")
-    if model_id:
+    adapter_path = os.environ.get("SKILLGEN_ADAPTER_PATH")
+    if backend_kind == "unsloth":
+        # GPU-only production path; construction is lazy — a machine
+        # without CUDA fails typed at first generate(), not here.
+        return UnslothBackend(
+            model_id or "unsloth/Qwen2.5-7B-Instruct-bnb-4bit",
+            adapter_path=adapter_path,
+        )
+    if backend_kind == "transformers" or model_id:
         return TransformersBackend(
-            model_id, adapter_path=os.environ.get("SKILLGEN_ADAPTER_PATH")
+            model_id or "Qwen/Qwen2.5-7B-Instruct", adapter_path=adapter_path
         )
     # Demo default — clearly named so /health never lets it pass as real.
     return FakeBackend([DEMO_BLUEPRINT], name="fake-demo (NOT a trained model)")

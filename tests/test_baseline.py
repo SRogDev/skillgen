@@ -15,6 +15,8 @@ Covers:
 
 import json
 
+import pytest
+
 from skillgen.evaluation.baseline import (
     FEW_SHOT_EXEMPLAR_IDS,
     SYSTEM_PROMPT,
@@ -155,3 +157,67 @@ def test_score_predictions_garbage_scores_zero():
     assert scores["skillgen_score"] == 0.0
     # The reference blueprint itself must be valid JSON for the test above.
     json.loads(record["expected_blueprint"])
+
+
+# ---------------------------------------------------------------------------
+# Loader selection (Roger's 2026-10-23 direction: real E0 runs on Kaggle
+# load the base model through Unsloth/FastLanguageModel; CPU default is
+# plain transformers and is unchanged).
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_loader_defaults_to_transformers(monkeypatch):
+    from skillgen.evaluation.baseline import resolve_loader
+
+    monkeypatch.delenv("SKILLGEN_BASELINE_LOADER", raising=False)
+    assert resolve_loader() == "transformers"
+    assert resolve_loader("transformers") == "transformers"
+    assert resolve_loader("unsloth") == "unsloth"
+
+
+def test_resolve_loader_env_override(monkeypatch):
+    from skillgen.evaluation.baseline import resolve_loader
+
+    monkeypatch.setenv("SKILLGEN_BASELINE_LOADER", "unsloth")
+    assert resolve_loader() == "unsloth"
+    # An explicit argument beats the environment.
+    assert resolve_loader("transformers") == "transformers"
+
+
+def test_resolve_loader_rejects_unknown(monkeypatch):
+    from skillgen.evaluation.baseline import resolve_loader
+
+    monkeypatch.delenv("SKILLGEN_BASELINE_LOADER", raising=False)
+    with pytest.raises(ValueError):
+        resolve_loader("bogus")
+
+
+def test_unsloth_model_name_mapping():
+    from skillgen.evaluation.baseline import DEFAULT_MODEL_ID, unsloth_model_name
+
+    assert (
+        unsloth_model_name(DEFAULT_MODEL_ID)
+        == "unsloth/Qwen2.5-7B-Instruct-bnb-4bit"
+    )
+    # Already an unsloth checkpoint: untouched.
+    assert (
+        unsloth_model_name("unsloth/Qwen2.5-7B-Instruct-bnb-4bit")
+        == "unsloth/Qwen2.5-7B-Instruct-bnb-4bit"
+    )
+    # Other HF ids pass through (FastLanguageModel can load them too).
+    assert unsloth_model_name("Qwen/Qwen2.5-0.5B-Instruct") == "Qwen/Qwen2.5-0.5B-Instruct"
+
+
+def test_generate_with_unsloth_loader_raises_typed_error_here():
+    # On this CPU VM (no unsloth, no CUDA) the unsloth loader must fail
+    # with the typed error BEFORE any model work — never a traceback.
+    from skillgen.evaluation.baseline import generate_predictions
+    from skillgen.training.unsloth_backend import UnslothUnavailableError
+
+    with pytest.raises(UnslothUnavailableError):
+        generate_predictions(
+            model_id="Qwen/Qwen2.5-0.5B-Instruct",
+            split="val",
+            limit=1,
+            loader="unsloth",
+        )
