@@ -5,7 +5,11 @@ data/raw/
 data/blueprints/
 # Monolithic dataset: local build artifact; the sharded files are canonical.
 data/dataset_skillgen_1000.jsonl
+# Local Python environment (uv): never commit.
+.venv/
 # Working files
 data/instr_parts/
 __pycache__/
-experiments/
+# Phase 3 CPU-smoke adapter weights + checkpoints: regenerable by re-running
+# configs/smoke_cpu.yaml; only the README/log in that dir are committed.
+experiments/e1_smoke/adapter/

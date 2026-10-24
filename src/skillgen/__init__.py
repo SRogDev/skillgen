@@ -1,1 +1,3 @@
-"""SkillGen: QLoRA fine-tuning of a small LLM to generate Agent Skill blueprints."""
+"""SkillGen — dataset pipelines for training a skill-generator model."""
+
+__version__ = "0.1.0"

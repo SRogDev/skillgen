@@ -1,0 +1,56 @@
+# SkillGen experiment E3 — ablation: epochs 3 (PLAN.md §19).
+#
+# Single change vs E1: training.num_train_epochs: 3. Together with the
+# epochs-1 variant this documents the overfitting cliff (§26/§36).
+# Everything else is IDENTICAL to configs/qlora_e1.yaml (enforced
+# by tests/test_prepare.py::test_variant_configs_differ_only_as_intended).
+
+experiment_id: skillgen-qlora-v1-e3-epochs3
+output_dir: experiments/e3_epochs3
+train_on_assistant_only: true
+model:
+  name: unsloth/Qwen2.5-7B-Instruct-bnb-4bit
+  base_model: Qwen/Qwen2.5-7B-Instruct
+quantization:
+  enabled: true
+  bits: 4
+  quant_type: nf4
+  double_quant: true
+  compute_dtype: fp16
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.0
+  bias: none
+  target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj
+training:
+  backend: unsloth  # production engine (Roger's 2026-10-23 direction); `peft` is CPU-smoke only.
+  learning_rate: 0.0002
+  num_train_epochs: 3
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  gradient_accumulation_steps: 8
+  warmup_ratio: 0.03
+  weight_decay: 0.01
+  optim: adamw_8bit
+  lr_scheduler_type: cosine
+  gradient_checkpointing: unsloth
+  max_grad_norm: 1.0
+  seed: 42
+  logging_steps: 10
+  eval_steps: 50
+  save_steps: 50
+  save_total_limit: 3
+  early_stopping_patience: 3
+data:
+  max_seq_length: 8192
+  dataset_limit: null
+  eval_limit: null
+  selection: first

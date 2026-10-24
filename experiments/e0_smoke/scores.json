@@ -1,0 +1,127 @@
+{
+ "n": 5,
+ "l1_parse_rate": 1.0,
+ "l2_schema_rate": 0.0,
+ "l3_name_em": 0.0,
+ "l3_file_path_f1": 0.0,
+ "l3_desc_token_f1": 0.3869853859729135,
+ "l3": 0.12899512865763782,
+ "l4_judge": "skipped",
+ "l4_note": "L4 (LLM judge) not run: eval_harness omits L4 when the judge is not run (it requires OPENROUTER_API_KEY).",
+ "l5_materialize_rate": 0.0,
+ "skillgen_score": 0.32446944203709127,
+ "skillgen_score_weighted_sum_no_l4": 0.2757990257315276,
+ "skillgen_score_note": "PLAN.md §33: 0.25*L1 + 0.25*L2 + 0.20*L3 + 0.15*L4 + 0.15*L5, with L3 = mean(name_em, file_path_f1, desc_token_f1). L4 was skipped, so skillgen_score is the weighted sum renormalised by the available weight (0.85).",
+ "items": [
+  {
+   "id": "davila7_claude-code-templates__clinical-reports",
+   "l1_parse": true,
+   "l2_errors": [
+    "missing field: blueprint_version",
+    "missing field: purpose",
+    "missing field: when_to_use",
+    "missing field: when_not_to_use",
+    "missing field: files",
+    "invalid name: 'ClinicalReportGenerator'"
+   ],
+   "l2_valid": false,
+   "l3": {
+    "name_em": 0.0,
+    "file_path_f1": 0.0,
+    "desc_token_f1": 0.5862068965517242
+   },
+   "l5_materialize": false,
+   "l5_errors": [
+    "SKILL.md not materialized"
+   ]
+  },
+  {
+   "id": "anthropics_knowledge-work-plugins__data-visualization",
+   "l1_parse": true,
+   "l2_errors": [
+    "missing field: blueprint_version",
+    "missing field: purpose",
+    "missing field: when_to_use",
+    "missing field: when_not_to_use",
+    "missing field: files",
+    "invalid name: 'Effective Data Visualization'"
+   ],
+   "l2_valid": false,
+   "l3": {
+    "name_em": 0.0,
+    "file_path_f1": 0.0,
+    "desc_token_f1": 0.27586206896551724
+   },
+   "l5_materialize": false,
+   "l5_errors": [
+    "SKILL.md not materialized"
+   ]
+  },
+  {
+   "id": "affaan-m_ecc__mysql-patterns",
+   "l1_parse": true,
+   "l2_errors": [
+    "missing field: blueprint_version",
+    "missing field: purpose",
+    "missing field: when_to_use",
+    "missing field: when_not_to_use",
+    "missing field: files",
+    "invalid name: 'Optimize MySQL Performance'"
+   ],
+   "l2_valid": false,
+   "l3": {
+    "name_em": 0.0,
+    "file_path_f1": 0.0,
+    "desc_token_f1": 0.3404255319148936
+   },
+   "l5_materialize": false,
+   "l5_errors": [
+    "SKILL.md not materialized"
+   ]
+  },
+  {
+   "id": "microsoft_azure-skills__azure-resource-visualizer",
+   "l1_parse": true,
+   "l2_errors": [
+    "missing field: blueprint_version",
+    "missing field: purpose",
+    "missing field: when_to_use",
+    "missing field: when_not_to_use",
+    "missing field: files",
+    "invalid name: 'AzureResourceGroupAnalysis'"
+   ],
+   "l2_valid": false,
+   "l3": {
+    "name_em": 0.0,
+    "file_path_f1": 0.0,
+    "desc_token_f1": 0.43243243243243246
+   },
+   "l5_materialize": false,
+   "l5_errors": [
+    "SKILL.md not materialized"
+   ]
+  },
+  {
+   "id": "grafana_skills__send-data",
+   "l1_parse": true,
+   "l2_errors": [
+    "missing field: blueprint_version",
+    "missing field: purpose",
+    "missing field: when_to_use",
+    "missing field: when_not_to_use",
+    "missing field: files",
+    "invalid name: 'TelemetryAgent'"
+   ],
+   "l2_valid": false,
+   "l3": {
+    "name_em": 0.0,
+    "file_path_f1": 0.0,
+    "desc_token_f1": 0.3
+   },
+   "l5_materialize": false,
+   "l5_errors": [
+    "SKILL.md not materialized"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,69 @@
+# SkillGen experiment E1 — QLoRA baseline recipe (PLAN.md §18).
+#
+# Base model: PROVISIONAL. Qwen/Qwen2.5-7B-Instruct was chosen in PLAN.md
+# §15 pending verification of 2026 open-weight models in the 7–8B class
+# (license, Unsloth 4-bit support, structured output). That verification
+# has NOT happened yet; do not treat this base as frozen.
+# `model.name` below is the pre-quantized Unsloth checkpoint of that base
+# (PLAN.md §15: use `unsloth/<model>-bnb-4bit` with load_in_4bit=True).
+#
+# LENGTH OVERRIDE (Phase 0, experiments/eda_v1/report.md): the provisional
+# PLAN.md §18 value max_seq_length=4096 is OVERRIDDEN by the measured EDA:
+# 46.75% of train records render longer than 4096 tokens. Decision:
+# max_seq_length = 8192 and FILTER, never truncate — train records whose
+# full rendered length exceeds 8192 tokens are excluded from training
+# (218 of 800 excluded, 582 kept). A truncated blueprint is invalid JSON
+# and would teach incomplete outputs. Val/test are never excluded from
+# evaluation; over-cap val records are only dropped from the *eval-loss*
+# set here (flagged count printed by prepare.py) because a causal-LM eval
+# batch cannot score a truncated target honestly either.
+experiment_id: skillgen-qlora-v1-e1
+output_dir: experiments/e1
+
+# PLAN.md §8/§22: loss ONLY on assistant tokens. prepare.py builds labels
+# with prompt positions = -100. E2 flips this single flag to ablate it.
+train_on_assistant_only: true
+
+model:
+  name: unsloth/Qwen2.5-7B-Instruct-bnb-4bit
+  base_model: Qwen/Qwen2.5-7B-Instruct  # PROVISIONAL — see header.
+
+quantization:
+  enabled: true
+  bits: 4
+  quant_type: nf4
+  double_quant: true
+  compute_dtype: fp16  # T4 has no bf16 (PLAN.md §17).
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.0
+  bias: none
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+training:
+  backend: unsloth  # production engine (Roger's 2026-10-23 direction); `peft` is CPU-smoke only.
+  learning_rate: 2.0e-4
+  num_train_epochs: 2
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 2
+  gradient_accumulation_steps: 8  # effective batch = 2 * 8 = 16
+  warmup_ratio: 0.03
+  weight_decay: 0.01
+  optim: adamw_8bit  # needs bitsandbytes (CUDA) — Kaggle only.
+  lr_scheduler_type: cosine
+  gradient_checkpointing: unsloth
+  max_grad_norm: 1.0
+  seed: 42
+  logging_steps: 10
+  eval_steps: 50
+  save_steps: 50
+  save_total_limit: 3
+  early_stopping_patience: 3
+
+data:
+  max_seq_length: 8192  # Phase-0 override of the provisional 4096 — see header.
+  dataset_limit: null   # null = the full filtered pool (582 for E1).
+  eval_limit: null
+  selection: first      # deterministic file order; "shortest" is smoke-only.

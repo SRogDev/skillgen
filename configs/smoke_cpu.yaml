@@ -1,0 +1,59 @@
+# SMOKE config — CPU pipeline proof, NOT experiment E1.
+#
+# This config exists only to prove, on this CPU-only VM, that prepare.py
+# masking, the SFTTrainer wiring and adapter saving work end to end
+# (same role as experiments/e0_smoke/ in Phase 2). Differences from E1 are
+# deliberate and numerous: a 0.5B model, NO quantization (bitsandbytes
+# needs CUDA), plain LoRA instead of QLoRA, 20 shortest filtered train
+# records, max_seq_length 2048, 1 epoch, adamw_torch (adamw_8bit needs
+# bitsandbytes). Nothing measured with this config is an E1 result.
+# Real E1 (7B QLoRA, configs/qlora_e1.yaml) runs on Kaggle — see
+# notebooks/05_qlora_training.ipynb.
+experiment_id: skillgen-qlora-smoke-cpu
+output_dir: experiments/e1_smoke/adapter
+
+train_on_assistant_only: true
+
+model:
+  name: Qwen/Qwen2.5-0.5B-Instruct
+  base_model: Qwen/Qwen2.5-0.5B-Instruct
+
+quantization:
+  enabled: false  # SMOKE: no bitsandbytes on CPU — plain LoRA, not QLoRA.
+  bits: 4
+  quant_type: nf4
+  double_quant: true
+  compute_dtype: fp16
+
+lora:
+  r: 8
+  alpha: 16
+  dropout: 0.0
+  bias: none
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+training:
+  backend: peft  # SMOKE only: Unsloth requires CUDA; this VM has none.
+  learning_rate: 2.0e-4
+  num_train_epochs: 1
+  per_device_train_batch_size: 2
+  per_device_eval_batch_size: 4
+  gradient_accumulation_steps: 1
+  warmup_ratio: 0.03
+  weight_decay: 0.01
+  optim: adamw_torch  # SMOKE: adamw_8bit needs bitsandbytes/CUDA.
+  lr_scheduler_type: cosine
+  gradient_checkpointing: false
+  max_grad_norm: 1.0
+  seed: 42
+  logging_steps: 1
+  eval_steps: 5
+  save_steps: 5
+  save_total_limit: 2
+  early_stopping_patience: 3
+
+data:
+  max_seq_length: 2048  # SMOKE only; the Phase-0 decision for E1 is 8192.
+  dataset_limit: 20     # SMOKE: the 20 SHORTEST filtered train records.
+  eval_limit: 8
+  selection: shortest

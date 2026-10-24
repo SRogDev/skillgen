@@ -1,0 +1,45 @@
+[transformers] Token indices sequence length is longer than the specified maximum sequence length for this model (1947918 > 131072). Running this sequence through the model will result in indexing errors
+[prepare] train: 800 records, 580 excluded over 2048 tokens (filter, never truncate), 20 in dataset
+[prepare] val (eval loss only, never trained on): 100 records, 67 over cap excluded from the eval set, 8 in eval set
+[gate] §21 masking verification PASSED. Decoded unmasked tokens of the first training example (must be ONLY the assistant blueprint + EOS):
+{"blueprint_version": "1.0", "name": "bad-skill-unclosed-frontmatter", "description": "", "purpose": "This frontmatter does not have a closing `---` block.", "when_to_use": [""], "when_not_to_use": [], "files": [{"path": "SKILL.md", "purpose": "Main skill definition: YAML frontmatter plus Markdown instructions.", "content": "---\nname: bad-skill-unclosed-frontmatter\nversion: 1.0.0\ndescription: \"This skill has an unclosed frontmatter block.\"\nmetadata: {}\n\n# Unclosed Frontmatter Skill\n\nThis frontmatter does not have a closing `---` block."}]}<|im_end|>
+Loading weights:   0%|          | 0/290 [00:00<?, ?it/s]Loading weights:   6%|▌         | 17/290 [00:00<00:03, 83.66it/s]Loading weights:  12%|█▏        | 36/290 [00:00<00:02, 119.08it/s]Loading weights:  25%|██▍       | 72/290 [00:00<00:01, 187.36it/s]Loading weights:  32%|███▏      | 93/290 [00:00<00:01, 176.30it/s]Loading weights:  43%|████▎     | 124/290 [00:00<00:00, 212.61it/s]Loading weights:  51%|█████     | 147/290 [00:00<00:00, 205.47it/s]Loading weights:  60%|█████▉    | 173/290 [00:01<00:00, 158.11it/s]Loading weights:  72%|███████▏  | 209/290 [00:01<00:00, 195.59it/s]Loading weights:  86%|████████▌ | 249/290 [00:01<00:00, 235.74it/s]Loading weights:  95%|█████████▌| 276/290 [00:01<00:00, 227.22it/s]Loading weights: 100%|██████████| 290/290 [00:01<00:00, 202.17it/s]
+Truncating train dataset:   0%|          | 0/20 [00:00<?, ? examples/s]Truncating train dataset: 100%|██████████| 20/20 [00:00<00:00, 2136.19 examples/s]
+Dropping fully masked examples from train dataset:   0%|          | 0/20 [00:00<?, ? examples/s]Dropping fully masked examples from train dataset: 100%|██████████| 20/20 [00:00<00:00, 6760.64 examples/s]
+Truncating eval dataset:   0%|          | 0/8 [00:00<?, ? examples/s]Truncating eval dataset: 100%|██████████| 8/8 [00:00<00:00, 760.72 examples/s]
+Dropping fully masked examples from eval dataset:   0%|          | 0/8 [00:00<?, ? examples/s]Dropping fully masked examples from eval dataset: 100%|██████████| 8/8 [00:00<00:00, 2796.44 examples/s]
+  0%|          | 0/10 [00:00<?, ?it/s]/home/hatch/workspace/skillgen/.venv/lib/python3.12/site-packages/torch/utils/data/dataloader.py:759: UserWarning: 'pin_memory' argument is set as true but no accelerator is found, then device pinned memory won't be used.
+  super().__init__(loader)
+ 10%|█         | 1/10 [00:39<05:55, 39.52s/it]                                               10%|█         | 1/10 [00:39<05:55, 39.52s/it] 20%|██        | 2/10 [01:05<04:12, 31.57s/it]                                               20%|██        | 2/10 [01:05<04:12, 31.57s/it] 30%|███       | 3/10 [01:29<03:15, 27.88s/it]                                               30%|███       | 3/10 [01:29<03:15, 27.88s/it] 40%|████      | 4/10 [01:45<02:20, 23.43s/it]                                               40%|████      | 4/10 [01:45<02:20, 23.43s/it] 50%|█████     | 5/10 [02:07<01:54, 23.00s/it]                                               50%|█████     | 5/10 [02:07<01:54, 23.00s/it]{'loss': '2.445', 'grad_norm': '2.416', 'learning_rate': '0', 'entropy': '1.679', 'mean_token_accuracy': '0.5935', 'num_tokens': '755', 'epoch': '0.1'}
+{'loss': '2.315', 'grad_norm': '2.119', 'learning_rate': '0.0002', 'entropy': '1.689', 'mean_token_accuracy': '0.6105', 'num_tokens': '1712', 'epoch': '0.2'}
+{'loss': '1.947', 'grad_norm': '2.156', 'learning_rate': '0.000194', 'entropy': '1.702', 'mean_token_accuracy': '0.637', 'num_tokens': '2434', 'epoch': '0.3'}
+{'loss': '1.845', 'grad_norm': '1.868', 'learning_rate': '0.0001766', 'entropy': '1.798', 'mean_token_accuracy': '0.6528', 'num_tokens': '3052', 'epoch': '0.4'}
+{'loss': '1.779', 'grad_norm': '1.49', 'learning_rate': '0.00015', 'entropy': '1.798', 'mean_token_accuracy': '0.6529', 'num_tokens': '3950', 'epoch': '0.5'}
+
+  0%|          | 0/2 [00:00<?, ?it/s][A
+100%|██████████| 2/2 [01:22<00:00, 41.04s/it][A                                              
+                                             [A 50%|█████     | 5/10 [04:12<01:54, 23.00s/it]
+100%|██████████| 2/2 [01:22<00:00, 41.04s/it][A
+                                             [AWarning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+ 60%|██████    | 6/10 [04:38<04:26, 66.56s/it]                                               60%|██████    | 6/10 [04:38<04:26, 66.56s/it] 70%|███████   | 7/10 [05:02<02:37, 52.49s/it]                                               70%|███████   | 7/10 [05:02<02:37, 52.49s/it] 80%|████████  | 8/10 [05:26<01:26, 43.35s/it]                                               80%|████████  | 8/10 [05:26<01:26, 43.35s/it] 90%|█████████ | 9/10 [05:53<00:38, 38.40s/it]                                               90%|█████████ | 9/10 [05:53<00:38, 38.40s/it]100%|██████████| 10/10 [06:18<00:00, 34.13s/it]                                               100%|██████████| 10/10 [06:18<00:00, 34.13s/it]/home/hatch/workspace/skillgen/.venv/lib/python3.12/site-packages/torch/utils/data/dataloader.py:759: UserWarning: 'pin_memory' argument is set as true but no accelerator is found, then device pinned memory won't be used.
+  super().__init__(loader)
+{'eval_loss': '2.029', 'eval_runtime': '124.9', 'eval_samples_per_second': '0.064', 'eval_steps_per_second': '0.016', 'eval_entropy': '2.091', 'eval_mean_token_accuracy': '0.6019', 'eval_num_tokens': '3950', 'epoch': '0.5'}
+{'loss': '1.654', 'grad_norm': '1.5', 'learning_rate': '0.0001174', 'entropy': '1.73', 'mean_token_accuracy': '0.6849', 'num_tokens': '4755', 'epoch': '0.6'}
+{'loss': '1.826', 'grad_norm': '1.312', 'learning_rate': '8.264e-05', 'entropy': '2.016', 'mean_token_accuracy': '0.6395', 'num_tokens': '5687', 'epoch': '0.7'}
+{'loss': '1.72', 'grad_norm': '1.354', 'learning_rate': '5e-05', 'entropy': '1.983', 'mean_token_accuracy': '0.6615', 'num_tokens': '6623', 'epoch': '0.8'}
+{'loss': '1.302', 'grad_norm': '1.395', 'learning_rate': '2.34e-05', 'entropy': '1.483', 'mean_token_accuracy': '0.7507', 'num_tokens': '7515', 'epoch': '0.9'}
+{'loss': '1.801', 'grad_norm': '1.211', 'learning_rate': '6.031e-06', 'entropy': '1.927', 'mean_token_accuracy': '0.665', 'num_tokens': '8450', 'epoch': '1'}
+
+  0%|          | 0/2 [00:00<?, ?it/s][A
+100%|██████████| 2/2 [01:25<00:00, 42.95s/it][A                                               
+                                             [A100%|██████████| 10/10 [08:31<00:00, 34.13s/it]
+100%|██████████| 2/2 [01:25<00:00, 42.95s/it][A
+                                             [A                                               100%|██████████| 10/10 [08:33<00:00, 34.13s/it]100%|██████████| 10/10 [08:34<00:00, 51.41s/it]
+/home/hatch/workspace/skillgen/.venv/lib/python3.12/site-packages/torch/utils/data/dataloader.py:759: UserWarning: 'pin_memory' argument is set as true but no accelerator is found, then device pinned memory won't be used.
+  super().__init__(loader)
+{'eval_loss': '2.003', 'eval_runtime': '133.1', 'eval_samples_per_second': '0.06', 'eval_steps_per_second': '0.015', 'eval_entropy': '2.101', 'eval_mean_token_accuracy': '0.607', 'eval_num_tokens': '8450', 'epoch': '1'}
+{'train_runtime': '514', 'train_samples_per_second': '0.039', 'train_steps_per_second': '0.019', 'train_loss': '1.863', 'epoch': '1'}
+  0%|          | 0/2 [00:00<?, ?it/s]100%|██████████| 2/2 [01:23<00:00, 41.73s/it]100%|██████████| 2/2 [01:23<00:00, 41.76s/it]
+[done] train loss: 1.8633783459663391
+[done] eval loss: 2.003126382827759
+[done] adapter + tokenizer saved to /home/hatch/workspace/skillgen/experiments/e1_smoke/adapter
